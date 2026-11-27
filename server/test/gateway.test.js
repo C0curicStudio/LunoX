@@ -1,0 +1,58 @@
+'use strict';
+process.env.LUNOX_API_KEYS = 'test-key-test-key-test-key-1234';
+const test = require('node:test');
+const assert = require('node:assert');
+const sec = require('../src/security');
+const { parseTarget } = require('../src/proxy');
+const { parseActions } = require('../src/llm');
+
+test('blocks internal IPs, allows public', () => {
+  for (const ip of ['127.0.0.1', '10.1.2.3', '192.168.1.1', '169.254.169.254', '172.20.0.1', '::1', 'fe80::1', '::ffff:127.0.0.1', 'fd00::1', '100.64.0.1'])
+    assert.ok(sec.isBlockedIp(ip), ip);
+  for (const ip of ['8.8.8.8', '1.1.1.1', '2606:4700:4700::1111']) assert.ok(!sec.isBlockedIp(ip), ip);
+});
+
+test('port policy', () => {
+  assert.ok(sec.isPortAllowed(443) && sec.isPortAllowed(80) && sec.isPortAllowed(8080));
+  assert.ok(!sec.isPortAllowed(22) && !sec.isPortAllowed(25) && !sec.isPortAllowed(6379) && !sec.isPortAllowed(0));
+});
+
+test('only http(s) urls without credentials', () => {
+  assert.ok(sec.parseHttpUrl('https://example.com/x'));
+  for (const u of ['file:///etc/passwd', 'ftp://a.com', 'javascript:alert(1)', 'https://u:p@a.com', 'nope']) assert.equal(sec.parseHttpUrl(u), null, u);
+});
+
+test('safeLookup refuses localhost', (t, done) => {
+  sec.safeLookup('localhost', {}, (err) => { assert.equal(err && err.code, 'EBLOCKED'); done(); });
+});
+
+test('key check is exact', () => {
+  assert.ok(sec.checkKey('test-key-test-key-test-key-1234'));
+  assert.equal(sec.checkKey('test-key-test-key-test-key-1235'), null);
+  assert.equal(sec.checkKey(''), null);
+});
+
+test('lockout after repeated failures', () => {
+  const ip = '203.0.113.9';
+  for (let i = 0; i < 8; i++) sec.recordFail(ip);
+  assert.ok(sec.isBanned(ip));
+});
+
+test('CONNECT target parsing', () => {
+  assert.deepEqual(parseTarget('example.com:443'), { host: 'example.com', port: 443 });
+  assert.deepEqual(parseTarget('[2001:db8::1]:443'), { host: '2001:db8::1', port: 443 });
+  assert.equal(parseTarget('bad'), null);
+});
+
+test('AI action plans are sanitised', () => {
+  const p = parseActions('x {"thought":"t","done":false,"actions":[{"type":"click","id":3},{"type":"goto","url":"javascript:alert(1)"},{"type":"rm","id":1},{"type":"type","id":2,"text":"hi"}]} y');
+  assert.deepEqual(p.actions.map((a) => a.type), ['click', 'type']);
+});
+
+test('IP literals are refused before connecting', () => {
+  assert.throws(() => sec.assertPublicHost('127.0.0.1'), /blocked/);
+  assert.throws(() => sec.assertPublicHost('[::1]'), /blocked/);
+  assert.throws(() => sec.assertPublicHost('169.254.169.254'), /blocked/);
+  assert.doesNotThrow(() => sec.assertPublicHost('example.com'));
+  assert.doesNotThrow(() => sec.assertPublicHost('8.8.8.8'));
+});
