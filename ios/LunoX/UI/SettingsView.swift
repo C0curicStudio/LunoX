@@ -24,7 +24,8 @@ struct SettingsView: View {
             }
 
             Section("外观") {
-                NavigationLink("主题：\(settings.theme.name)") { ThemesView() }
+                Picker("外观", selection: $settings.prefs.appearance) { ForEach(Appearance.allCases) { Text($0.title).tag($0) } }
+                NavigationLink("主题：\(settings.family.name)") { ThemesView() }
                 Toggle("原生化网页（去缩放/去延迟/隐藏滚动条）", isOn: $settings.prefs.nativeMode)
             }
 

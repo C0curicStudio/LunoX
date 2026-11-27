@@ -40,6 +40,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
     @Published var secure = false
     @Published var group: String?
     @Published var zoom = 100
+    @Published var hero: UIImage?
 
     private(set) var webView: WKWebView?
     var restoreState: Data?
@@ -61,6 +62,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         self.url = url; self.title = title; self.adoptedConfig = config
         super.init()
         restoreURL = url
+        if let h = url?.host { favicon = store.icon(for: h) }
     }
 
     var displayTitle: String { title.isEmpty ? (url?.displayHost ?? "新标签页") : title }
@@ -71,7 +73,6 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
     @discardableResult
     func ensureWebView() -> WKWebView {
         if let w = webView { return w }
-        let s = store.settings
         let cfg = adoptedConfig ?? makeConfig()
         let wv = WKWebView(frame: .zero, configuration: cfg)
         adoptedConfig = nil
@@ -84,7 +85,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         wv.scrollView.backgroundColor = .clear
         wv.scrollView.contentInsetAdjustmentBehavior = .always
         wv.scrollView.decelerationRate = .normal
-        wv.overrideUserInterfaceStyle = s.theme.scheme == .dark ? .dark : .light
+        wv.overrideUserInterfaceStyle = store.webStyle
         #if DEBUG
         wv.isInspectable = true
         #endif
@@ -134,6 +135,14 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         if s.prefs.blockTrackers, let list = store.blocker.list { ucc.add(list) }
         cfg.userContentController = ucc
         return cfg
+    }
+
+    /// Full-resolution snapshot used for the zoom-into-card transition.
+    func captureHero() async {
+        guard let wv = webView, wv.bounds.width > 0 else { return }
+        let cfg = WKSnapshotConfiguration(); cfg.snapshotWidth = NSNumber(value: Double(wv.bounds.width))
+        let img: UIImage? = await withCheckedContinuation { c in wv.takeSnapshot(with: cfg) { i, _ in c.resume(returning: i) } }
+        if let img { hero = img; thumbnail = img }
     }
 
     func suspend() {   // free memory for background tabs, keep history + scroll
@@ -307,7 +316,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         if let u = webView.url, u.scheme != "about" { url = u }
         if loadingArchive { showingCachedCopy = true }
-        favicon = nil
+        favicon = webView.url?.host.flatMap { store.icon(for: $0) }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

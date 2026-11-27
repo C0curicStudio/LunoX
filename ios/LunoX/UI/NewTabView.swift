@@ -5,80 +5,103 @@ struct NewTabView: View {
     @EnvironmentObject var settings: Settings
     @EnvironmentObject var offline: OfflineCache
     @Environment(\.theme) private var theme
-    @State private var appear = false
+    @State private var shown = false
 
     private var favorites: [Bookmark] { Array(store.bookmarks.prefix(8)) }
     private var isPrivate: Bool { store.current?.isPrivate == true }
 
     var body: some View {
-        ZStack {
-            theme.background
-            Circle().fill(theme.glow.opacity(0.35)).frame(width: 340).blur(radius: 90).offset(x: 90, y: -230)
-            Circle().fill(theme.accent.opacity(0.18)).frame(width: 260).blur(radius: 80).offset(x: -120, y: 120)
+        ZStack(alignment: .top) {
+            theme.background.ignoresSafeArea()
+            FlatArt(theme: theme, seed: isPrivate ? 2 : abs(settings.prefs.themeID.hashValue) % 3)
+                .frame(height: 300).opacity(isPrivate ? 0.55 : 1)
+                .mask(LinearGradient(colors: [.black, .black, .clear], startPoint: .top, endPoint: .bottom))
+                .ignoresSafeArea(edges: .top)
+
             ScrollView {
-                VStack(spacing: 34) {
-                    VStack(spacing: 8) {
-                        Image(systemName: isPrivate ? "eyeglasses" : "moon.stars.fill")
-                            .font(.system(size: 34, weight: .light)).foregroundStyle(theme.accent)
-                        Text(isPrivate ? "隐私浏览" : "LunoX")
-                            .font(.system(size: 40, weight: .semibold, design: .rounded)).foregroundStyle(theme.ink)
-                        Text(isPrivate ? "关闭所有隐私标签页后，记录与 Cookie 会被丢弃。" : greeting)
+                VStack(spacing: 30) {
+                    VStack(spacing: 6) {
+                        Text(isPrivate ? "隐私浏览" : greeting)
+                            .font(.system(size: 34, weight: .bold, design: .rounded)).foregroundStyle(theme.ink)
+                        Text(isPrivate ? "关闭所有隐私标签页后，历史记录与 Cookie 都会被丢弃" : "搜索或输入网址")
                             .font(.system(size: 14, design: .rounded)).foregroundStyle(theme.inkSoft).multilineTextAlignment(.center)
-                    }.padding(.top, 110)
+                    }
+                    .padding(.top, 150).staggered(0, shown)
+
+                    Button { Haptics.soft(); store.searchRequest += 1 } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "magnifyingglass").foregroundStyle(theme.accent)
+                            Text("搜索或输入网址").foregroundStyle(theme.inkSoft)
+                            Spacer()
+                            Image(systemName: "mic.fill").foregroundStyle(theme.inkSoft.opacity(0.6)).font(.system(size: 14))
+                        }
+                        .font(.system(size: 16, weight: .medium, design: .rounded))
+                        .padding(.horizontal, 18).frame(height: 52)
+                        .background(theme.surface, in: Capsule())
+                        .shadow(color: .black.opacity(theme.scheme == .dark ? 0.35 : 0.08), radius: 16, y: 6)
+                    }
+                    .buttonStyle(PressableStyle(scale: 0.97)).staggered(1, shown)
 
                     if !isPrivate && !favorites.isEmpty {
-                        section("收藏") {
-                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), spacing: 18) {
+                        section("收藏", index: 2) {
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 16) {
                                 ForEach(favorites) { b in
-                                    Button { store.open(b.url) } label: { tile(b.title, URL(string: b.url)?.host) }.buttonStyle(.plain)
+                                    Button { Haptics.tap(); store.open(b.url) } label: { tile(b) }.buttonStyle(PressableStyle())
                                 }
                             }
                         }
                     }
                     if !isPrivate && !offline.pages.isEmpty {
-                        section("离线可读") {
+                        section("离线可读", index: 3) {
                             VStack(spacing: 0) {
-                                ForEach(offline.pages.prefix(4)) { p in
+                                ForEach(Array(offline.pages.prefix(4).enumerated()), id: \.element.id) { i, p in
                                     Button { store.open(p.url) } label: {
-                                        HStack {
-                                            Image(systemName: "arrow.down.circle").foregroundStyle(theme.accent)
-                                            Text(p.title).lineLimit(1).font(.system(size: 15, design: .rounded)).foregroundStyle(theme.ink)
+                                        HStack(spacing: 12) {
+                                            FaviconTile(image: URL(string: p.url)?.host.flatMap { store.icon(for: $0) }, fallback: p.title, size: 30)
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(p.title).lineLimit(1).font(.system(size: 15, weight: .medium, design: .rounded)).foregroundStyle(theme.ink)
+                                                Text(URL(string: p.url)?.displayHost ?? "").font(.system(size: 12)).foregroundStyle(theme.inkSoft)
+                                            }
                                             Spacer()
-                                        }.padding(.horizontal, 16).padding(.vertical, 13)
-                                    }.buttonStyle(.plain)
+                                            Image(systemName: "arrow.down.circle.fill").foregroundStyle(theme.accent.opacity(0.8))
+                                        }.padding(.horizontal, 14).padding(.vertical, 11).contentShape(Rectangle())
+                                    }.buttonStyle(PressableStyle(scale: 0.98))
+                                    if i < min(offline.pages.count, 4) - 1 { Divider().padding(.leading, 56) }
                                 }
-                            }.lunoGlass(RoundedRectangle(cornerRadius: 22, style: .continuous), interactive: false)
+                            }
+                            .background(theme.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                         }
                     }
-                    Spacer(minLength: 160)
+                    if !store.online {
+                        Label("当前离线：界面可用，已缓存的页面可直接打开", systemImage: "wifi.slash").font(.system(size: 13, design: .rounded)).foregroundStyle(theme.inkSoft).staggered(4, shown)
+                    }
+                    Spacer(minLength: 170)
                 }
                 .padding(.horizontal, 20)
-                .opacity(appear ? 1 : 0).offset(y: appear ? 0 : 14)
             }
+            .scrollIndicators(.hidden)
         }
-        .onAppear { withAnimation(.spring(response: 0.6, dampingFraction: 0.85)) { appear = true } }
+        .onAppear { withAnimation { shown = true }; for b in favorites { if let h = URL(string: b.url)?.host { store.ensureIcon(host: h) } } }
     }
 
     private var greeting: String {
         let h = Calendar.current.component(.hour, from: Date())
-        return h < 6 ? "夜深了，早点休息" : h < 12 ? "早上好" : h < 18 ? "下午好" : "晚上好"
+        return h < 5 ? "夜深了" : h < 12 ? "早上好" : h < 18 ? "下午好" : "晚上好"
     }
 
-    private func section<C: View>(_ title: String, @ViewBuilder _ c: () -> C) -> some View {
+    private func section<C: View>(_ title: String, index: Int, @ViewBuilder _ c: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title).font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundStyle(theme.inkSoft).padding(.leading, 6)
+            Text(title).font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundStyle(theme.inkSoft).padding(.leading, 4)
             c()
-        }
+        }.staggered(index, shown)
     }
 
-    private func tile(_ title: String, _ host: String?) -> some View {
-        VStack(spacing: 8) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 18, style: .continuous).fill(theme.accent.opacity(0.14))
-                if let h = host, let img = store.icon(for: h) { Image(uiImage: img).resizable().scaledToFit().frame(width: 28, height: 28) }
-                else { Text(String(title.prefix(1)).uppercased()).font(.system(size: 22, weight: .semibold, design: .rounded)).foregroundStyle(theme.accent) }
-            }.frame(width: 58, height: 58)
-            Text(title).font(.system(size: 11, design: .rounded)).foregroundStyle(theme.inkSoft).lineLimit(1)
+    private func tile(_ b: Bookmark) -> some View {
+        let host = URL(string: b.url)?.host
+        return VStack(spacing: 8) {
+            FaviconTile(image: host.flatMap { store.icon(for: $0) }, fallback: b.title, size: 60, radius: 18)
+                .shadow(color: .black.opacity(theme.scheme == .dark ? 0.3 : 0.07), radius: 8, y: 3)
+            Text(b.title).font(.system(size: 11, weight: .medium, design: .rounded)).foregroundStyle(theme.inkSoft).lineLimit(1)
         }
     }
 }

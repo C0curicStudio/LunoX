@@ -11,39 +11,49 @@ struct MenuSheet: View {
     var onFind: () -> Void
     var initialRoute: MenuRoute? = nil
     @State private var path: [MenuRoute] = []
+    @State private var shown = false
 
     private var tab: Tab? { store.current }
     private let cols = Array(repeating: GridItem(.flexible(), spacing: 12), count: 3)
+
+    private enum Kind { case action(() -> Void), route(MenuRoute), share(URL) }
+    private struct Item: Identifiable { var id: String { title }; var icon: String; var title: String; var on = true; var kind: Kind }
+
+    private var items: [Item] {
+        let page = tab?.isBlank == false
+        var l: [Item] = [
+            Item(icon: "plus.square", title: "新标签页", kind: .action { store.newTab(); dismiss() }),
+            Item(icon: "eyeglasses", title: "隐私标签页", kind: .action { store.newTab(isPrivate: true); dismiss() }),
+            Item(icon: "arrow.uturn.backward.circle", title: "恢复关闭", on: !store.recentlyClosed.isEmpty, kind: .action { store.reopenClosed(); dismiss() }),
+            Item(icon: "star", title: "书签", kind: .route(.bookmarks)),
+            Item(icon: "clock", title: "历史记录", kind: .route(.history)),
+            Item(icon: "arrow.down.circle", title: "下载", kind: .route(.downloads)),
+            Item(icon: "tray.and.arrow.down", title: "离线页面", kind: .route(.offline)),
+            Item(icon: "magnifyingglass", title: "页内查找", on: page, kind: .action { dismiss(); onFind() }),
+            Item(icon: "desktopcomputer", title: tab?.isDesktop == true ? "移动版网站" : "桌面版网站", on: page, kind: .action { tab?.toggleDesktop(); dismiss() }),
+            Item(icon: "text.page", title: "阅读模式", on: page, kind: .route(.reader)),
+            Item(icon: "sparkles", title: "AI 助手", on: settings.prefs.aiEnabled, kind: .route(.ai)),
+            Item(icon: store.isBookmarked(tab?.url) ? "star.fill" : "star.circle", title: store.isBookmarked(tab?.url) ? "取消收藏" : "添加书签", on: page, kind: .action { store.toggleBookmark(tab); dismiss() }),
+        ]
+        if let u = tab?.url, page { l.append(Item(icon: "square.and.arrow.up", title: "分享", kind: .share(u))) }
+        else { l.append(Item(icon: "square.and.arrow.up", title: "分享", on: false, kind: .action {})) }
+        l += [
+            Item(icon: "printer", title: "打印", on: page, kind: .action { printPage(); dismiss() }),
+            Item(icon: "safari", title: "在 Safari 打开", on: tab?.url != nil, kind: .action { if let u = tab?.url { UIApplication.shared.open(u) }; dismiss() }),
+            Item(icon: "puzzlepiece.extension", title: "扩展与脚本", kind: .route(.extensions)),
+            Item(icon: "paintpalette", title: "主题与外观", kind: .route(.themes)),
+            Item(icon: "gearshape", title: "设置", kind: .route(.settings)),
+        ]
+        return l
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
             ScrollView {
                 LazyVGrid(columns: cols, spacing: 12) {
-                    tile("plus.square", "新标签页") { store.newTab(); dismiss() }
-                    tile("eyeglasses", "隐私标签页") { store.newTab(isPrivate: true); dismiss() }
-                    tile("arrow.uturn.backward.circle", "恢复关闭", on: !store.recentlyClosed.isEmpty) { store.reopenClosed(); dismiss() }
-
-                    link("star", "书签", .bookmarks)
-                    link("clock", "历史记录", .history)
-                    link("arrow.down.circle", "下载", .downloads)
-
-                    link("tray.and.arrow.down", "离线页面", .offline)
-                    tile("magnifyingglass", "页内查找", on: tab?.isBlank == false) { dismiss(); onFind() }
-                    tile("desktopcomputer", tab?.isDesktop == true ? "移动版网站" : "桌面版网站", on: tab?.isBlank == false) { tab?.toggleDesktop(); dismiss() }
-
-                    link("text.page", "阅读模式", .reader, on: tab?.isBlank == false)
-                    link("sparkles", "AI 助手", .ai, on: settings.prefs.aiEnabled)
-                    tile(store.isBookmarked(tab?.url) ? "star.fill" : "star.circle", store.isBookmarked(tab?.url) ? "取消收藏" : "添加书签", on: tab?.isBlank == false) { store.toggleBookmark(tab); dismiss() }
-
-                    if let u = tab?.url, !(tab?.isBlank ?? true) {
-                        ShareLink(item: u) { tileBody("square.and.arrow.up", "分享", true) }.buttonStyle(.plain)
-                    } else { tileBody("square.and.arrow.up", "分享", false) }
-                    tile("printer", "打印", on: tab?.isBlank == false) { printPage(); dismiss() }
-                    tile("safari", "在 Safari 打开", on: tab?.url != nil) { if let u = tab?.url { UIApplication.shared.open(u) }; dismiss() }
-
-                    link("puzzlepiece.extension", "扩展与脚本", .extensions)
-                    link("paintpalette", "主题", .themes)
-                    link("gearshape", "设置", .settings)
+                    ForEach(Array(items.enumerated()), id: \.element.id) { i, it in
+                        cell(it).staggered(i, shown, rise: 14)
+                    }
                 }
                 .padding(16)
 
@@ -52,7 +62,7 @@ struct MenuSheet: View {
                         Image(systemName: "textformat.size").foregroundStyle(theme.inkSoft)
                         Slider(value: Binding(get: { Double(t.zoom) }, set: { t.setZoom(Int($0)) }), in: 70...250, step: 5)
                         Text("\(t.zoom)%").font(.system(size: 13, design: .rounded).monospacedDigit()).foregroundStyle(theme.inkSoft).frame(width: 44)
-                    }.padding(.horizontal, 22).padding(.bottom, 20)
+                    }.padding(.horizontal, 22).padding(.bottom, 20).staggered(items.count, shown)
                 }
             }
             .navigationTitle("LunoX").navigationBarTitleDisplayMode(.inline)
@@ -71,7 +81,21 @@ struct MenuSheet: View {
             }
         }
         .presentationBackground(.regularMaterial)
-        .onAppear { if let r = initialRoute, path.isEmpty { path = [r] } }
+        .onAppear {
+            if let r = initialRoute, path.isEmpty { path = [r] }
+            withAnimation { shown = true }
+        }
+    }
+
+    @ViewBuilder private func cell(_ it: Item) -> some View {
+        switch it.kind {
+        case .action(let f):
+            Button { Haptics.tap(); f() } label: { tileBody(it) }.buttonStyle(PressableStyle()).disabled(!it.on)
+        case .route(let r):
+            Button { Haptics.tap(); path.append(r) } label: { tileBody(it) }.buttonStyle(PressableStyle()).disabled(!it.on)
+        case .share(let u):
+            ShareLink(item: u) { tileBody(it) }.buttonStyle(PressableStyle())
+        }
     }
 
     private func printPage() {
@@ -82,19 +106,14 @@ struct MenuSheet: View {
         pc.present(animated: true)
     }
 
-    private func tile(_ icon: String, _ title: String, on: Bool = true, action: @escaping () -> Void) -> some View {
-        Button { Haptics.tap(); action() } label: { tileBody(icon, title, on) }.buttonStyle(.plain).disabled(!on)
-    }
-    private func link(_ icon: String, _ title: String, _ r: MenuRoute, on: Bool = true) -> some View {
-        Button { Haptics.tap(); path.append(r) } label: { tileBody(icon, title, on) }.buttonStyle(.plain).disabled(!on)
-    }
-    private func tileBody(_ icon: String, _ title: String, _ on: Bool) -> some View {
+    private func tileBody(_ it: Item) -> some View {
         VStack(spacing: 10) {
-            Image(systemName: icon).font(.system(size: 22, weight: .regular)).foregroundStyle(on ? theme.accent : theme.inkSoft.opacity(0.4))
-            Text(title).font(.system(size: 12, weight: .medium, design: .rounded)).foregroundStyle(on ? theme.ink : theme.inkSoft.opacity(0.5)).lineLimit(1)
+            Image(systemName: it.icon).font(.system(size: 22, weight: .regular)).foregroundStyle(it.on ? theme.accent : theme.inkSoft.opacity(0.4)).frame(height: 26)
+            Text(it.title).font(.system(size: 12, weight: .medium, design: .rounded)).foregroundStyle(it.on ? theme.ink : theme.inkSoft.opacity(0.5)).lineLimit(1).minimumScaleFactor(0.8)
         }
-        .frame(maxWidth: .infinity).frame(height: 84)
-        .lunoGlass(RoundedRectangle(cornerRadius: 22, style: .continuous), interactive: on)
+        .frame(maxWidth: .infinity).frame(height: 88)
+        .background(theme.surface.opacity(theme.scheme == .dark ? 0.7 : 0.85), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(theme.inkSoft.opacity(0.1), lineWidth: 0.5))
     }
 }
 
@@ -231,22 +250,38 @@ struct ThemesView: View {
     @Environment(\.theme) private var current
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
-                ForEach(Theme.all) { t in
-                    Button { Haptics.soft(); withAnimation(.easeInOut(duration: 0.35)) { settings.prefs.themeID = t.id } } label: {
-                        ZStack(alignment: .bottomLeading) {
-                            t.background
-                            Circle().fill(t.glow.opacity(0.5)).frame(width: 90).blur(radius: 24).offset(x: 40, y: -30)
-                            VStack(alignment: .leading, spacing: 6) {
-                                Capsule().fill(t.accent).frame(width: 34, height: 6)
-                                Text(t.name).font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundStyle(t.ink)
-                            }.padding(16)
-                        }
-                        .frame(height: 120).clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(settings.prefs.themeID == t.id ? t.accent : .gray.opacity(0.2), lineWidth: settings.prefs.themeID == t.id ? 2.5 : 0.5))
-                    }.buttonStyle(.plain)
+            VStack(spacing: 18) {
+                SegmentPill(selection: Binding(get: { Appearance.allCases.firstIndex(of: settings.prefs.appearance) ?? 0 },
+                                               set: { settings.prefs.appearance = Appearance.allCases[$0] }),
+                            items: [("circle.lefthalf.filled", "跟随系统"), ("sun.max", "浅色"), ("moon", "深色")])
+                    .padding(.horizontal, 4)
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
+                    ForEach(ThemeFamily.all) { f in card(f) }
                 }
             }.padding(16)
-        }.navigationTitle("主题")
+        }
+        .navigationTitle("主题与外观")
+    }
+
+    private func card(_ f: ThemeFamily) -> some View {
+        let on = settings.prefs.themeID == f.id
+        let t = f.resolve(current.scheme)
+        return Button { Haptics.soft(); withAnimation(.easeInOut(duration: 0.35)) { settings.prefs.themeID = f.id } } label: {
+            ZStack(alignment: .bottomLeading) {
+                // left half = light, right half = dark: both variants at a glance
+                HStack(spacing: 0) { f.light.background; f.dark.background }
+                FlatArt(theme: t, seed: abs(f.id.hashValue) % 3, animated: false).opacity(0.95)
+                HStack(spacing: 6) {
+                    Circle().fill(f.light.accent).frame(width: 14, height: 14)
+                    Circle().fill(f.dark.accent).frame(width: 14, height: 14)
+                    Spacer()
+                    if on { Image(systemName: "checkmark.circle.fill").foregroundStyle(t.accent).font(.system(size: 20)).transition(.scale.combined(with: .opacity)) }
+                }.padding(.horizontal, 14).padding(.top, 14).frame(maxHeight: .infinity, alignment: .top)
+                Text(f.name).font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundStyle(t.ink).padding(14)
+            }
+            .frame(height: 132).clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(on ? t.accent : .gray.opacity(0.2), lineWidth: on ? 2.5 : 0.5))
+            .shadow(color: .black.opacity(0.08), radius: 10, y: 5)
+        }.buttonStyle(PressableStyle(scale: 0.96))
     }
 }

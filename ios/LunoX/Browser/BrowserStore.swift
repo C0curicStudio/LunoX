@@ -29,6 +29,11 @@ final class BrowserStore: ObservableObject {
     @Published var history: [HistoryItem]
     @Published var recentlyClosed: [ClosedTab] = []
     @Published var syncStatus = ""
+    @Published var searchRequest = 0
+    @Published private(set) var faviconRev = 0
+    private(set) var webStyle: UIUserInterfaceStyle = .unspecified
+    private let favDir = Paths.dir("Favicons", excludeFromBackup: true)
+    private var missingIcons = Set<String>()
 
     private let bookmarksFile = JSONFile<[Bookmark]>("bookmarks.json")
     private let historyFile = JSONFile<[HistoryItem]>("history.json")
@@ -191,16 +196,38 @@ final class BrowserStore: ObservableObject {
     // MARK: favicons
 
     func loadFavicon(_ icon: URL, host: String, _ done: @escaping (UIImage?) -> Void) {
-        if let i = favicons[host] { done(i); return }
+        if let i = self.icon(for: host) { done(i); return }
         Task {
             var img: UIImage?
-            if let (d, _) = try? await URLSession.shared.data(from: icon), let i = UIImage(data: d) { img = i }
-            else if settings.gatewayConfigured, let d = await gateway.favicon(host: host) { img = UIImage(data: d) }
-            if let img { favicons[host] = img }
+            for u in [icon, URL(string: "https://\(host)/favicon.ico")].compactMap({ $0 }) {
+                if let (d, r) = try? await URLSession.shared.data(from: u), (r as? HTTPURLResponse)?.statusCode == 200, let i = UIImage(data: d) { img = i; break }
+            }
+            if img == nil, settings.gatewayConfigured, let d = await gateway.favicon(host: host) { img = UIImage(data: d) }
+            if let img { store(img, host: host) }
             done(img)
         }
     }
-    func icon(for host: String) -> UIImage? { favicons[host] }
+    private func store(_ img: UIImage, host: String) {
+        favicons[host] = img; missingIcons.remove(host); faviconRev += 1
+        if let d = img.pngData() { let f = favDir.appendingPathComponent(host.sha256Hex); DispatchQueue.global(qos: .utility).async { try? d.write(to: f) } }
+    }
+    /// Icons are cached in memory and on disk, so tabs and favorites show them instantly (and offline).
+    func icon(for host: String) -> UIImage? {
+        if let i = favicons[host] { return i }
+        if missingIcons.contains(host) { return nil }
+        if let d = try? Data(contentsOf: favDir.appendingPathComponent(host.sha256Hex)), let i = UIImage(data: d) { favicons[host] = i; return i }
+        missingIcons.insert(host); return nil
+    }
+    func ensureIcon(host: String) {
+        guard icon(for: host) == nil, let u = URL(string: "https://\(host)/favicon.ico") else { return }
+        missingIcons.remove(host)
+        loadFavicon(u, host: host) { _ in }
+    }
+
+    func applyAppearance(_ a: Appearance) {
+        webStyle = a == .system ? .unspecified : (a == .dark ? .dark : .light)
+        tabs.forEach { $0.webView?.overrideUserInterfaceStyle = webStyle }
+    }
 
     // MARK: persistence
 

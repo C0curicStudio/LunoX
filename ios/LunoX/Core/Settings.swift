@@ -10,7 +10,8 @@ enum RoutingMode: String, Codable, CaseIterable, Identifiable {
 struct Prefs: Codable, Equatable {
     var engineID = "google"
     var homepage = ""
-    var themeID = "mist"
+    var themeID = "safari"
+    var appearance: Appearance = .system
     var routing: RoutingMode = .auto
     var blockTrackers = true
     var httpsOnly = true
@@ -52,7 +53,7 @@ final class Settings: ObservableObject {
     }
     var gatewayConfigured: Bool { !gatewayKey.isEmpty && !prefs.gatewayHost.isEmpty && Pinning.normalize(prefs.gatewayPin).count == 64 }
     var engine: SearchEngine { SearchEngine.all.first { $0.id == prefs.engineID } ?? SearchEngine.all[0] }
-    var theme: Theme { Theme.all.first { $0.id == prefs.themeID } ?? Theme.all[0] }
+    var family: ThemeFamily { ThemeFamily.all.first { $0.id == prefs.themeID } ?? ThemeFamily.all[0] }
 
     func site(_ host: String?) -> SiteSetting { sites[URLResolver.registrableDomain(host ?? "")] ?? SiteSetting(desktop: prefs.defaultDesktop) }
     func updateSite(_ host: String?, _ f: (inout SiteSetting) -> Void) {

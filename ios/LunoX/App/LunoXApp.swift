@@ -34,17 +34,24 @@ struct LunoXApp: App {
 struct ThemedRoot: View {
     @EnvironmentObject var settings: Settings
     @EnvironmentObject var lock: AppLock
+    @EnvironmentObject var store: BrowserStore
+    @Environment(\.colorScheme) private var system
     @Environment(\.scenePhase) private var phase
 
+    private var effective: ColorScheme { settings.prefs.appearance.forced ?? system }
+
     var body: some View {
-        let theme = settings.theme
+        let theme = settings.family.resolve(effective)
         ZStack {
             RootView()
-            if settings.prefs.appLock && (lock.locked || phase != .active) { LockView() }
+            if settings.prefs.appLock && (lock.locked || phase != .active) { LockView().transition(.opacity) }
         }
         .environment(\.theme, theme)
-        .preferredColorScheme(theme.scheme)
+        .preferredColorScheme(settings.prefs.appearance.forced)
         .tint(theme.accent)
+        .animation(.easeInOut(duration: 0.35), value: theme)       // day/night + theme changes cross-fade
+        .onAppear { store.applyAppearance(settings.prefs.appearance) }
+        .onChange(of: settings.prefs.appearance) { _, a in store.applyAppearance(a) }
     }
 }
 
@@ -69,6 +76,7 @@ struct LockView: View {
     var body: some View {
         ZStack {
             Rectangle().fill(.ultraThickMaterial).ignoresSafeArea()
+            FlatArt(theme: theme, seed: 0).frame(height: 320).frame(maxHeight: .infinity, alignment: .top).ignoresSafeArea().opacity(0.7)
             VStack(spacing: 18) {
                 Image(systemName: "lock.fill").font(.system(size: 34, weight: .light))
                 Text("LunoX 已锁定").font(.system(.title3, design: .rounded, weight: .semibold))

@@ -91,29 +91,31 @@ jobs:
           xcrun simctl ui "$UDID" appearance light || true
           defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false || true   # show the on-screen keyboard
           mkdir -p shots
-          shot() { # name, theme, extra args...
-            n=$1; t=$2; shift 2
-            xcrun simctl launch --terminate-running-process "$UDID" app.lunox.browser -demo "$@" -theme "$t" >/dev/null
+          shot() { # name theme appearance demo [extra...]
+            n=$1; t=$2; ap=$3; d=$4; shift 4
+            xcrun simctl launch --terminate-running-process "$UDID" app.lunox.browser -demo "$d" "$@" -theme "$t" -appearance "$ap" >/dev/null
             sleep ${WAIT:-7}
             xcrun simctl io "$UDID" screenshot "shots/$n.png" >/dev/null 2>&1 || true
           }
-          shot 01-newtab-mist mist newtab
-          shot 02-newtab-ink ink newtab
-          shot 03-newtab-aurora aurora newtab
-          shot 04-search mist search
-          shot 05-menu mist menu
-          shot 06-menu-ink ink menu
-          shot 07-settings mist settings
-          shot 08-themes mist themes
-          shot 09-extensions mist extensions
-          shot 10-bookmarks mist bookmarks
-          shot 11-ai mist ai
-          shot 12-private mist private
-          shot 13-find mist find
-          WAIT=14 shot 20-web-wikipedia mist web
-          WAIT=14 shot 21-web-ink ink web
-          WAIT=16 shot 22-web-menu mist web2
-          WAIT=14 shot 23-switcher mist switcher
+          shot 01-newtab-light safari light newtab
+          shot 02-newtab-dark safari dark newtab
+          shot 03-newtab-sakura sakura light newtab
+          shot 04-newtab-dusk-dark dusk dark newtab
+          shot 05-search safari light search
+          shot 06-menu-light safari light menu
+          shot 07-menu-dark safari dark menu
+          shot 08-settings safari light settings
+          shot 09-themes safari light themes
+          shot 10-themes-dark safari dark themes
+          shot 11-extensions safari light extensions
+          shot 12-ai safari light ai
+          shot 13-private safari light private
+          shot 14-find safari light find
+          WAIT=14 shot 20-web-light safari light web
+          WAIT=14 shot 21-web-dark safari dark web
+          WAIT=16 shot 22-web-menu safari light web2
+          WAIT=14 shot 23-switcher-light safari light switcher
+          WAIT=14 shot 24-switcher-dark mint dark switcher
           ls -la shots
       - uses: actions/upload-artifact@v4
         if: always()

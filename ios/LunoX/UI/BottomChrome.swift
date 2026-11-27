@@ -10,6 +10,7 @@ struct BottomChrome: View {
     var onSearch: () -> Void
     var onSite: () -> Void
     var onMenu: () -> Void
+    var onTabs: () -> Void
 
     var body: some View {
         let collapsed = store.barsCollapsed && !tab.isBlank
@@ -21,7 +22,7 @@ struct BottomChrome: View {
         }
         .padding(.horizontal, collapsed ? 80 : 16)
         .padding(.bottom, 6)
-        .opacity(searching ? 0 : 1)
+        .opacity(searching ? 0 : 1).scaleEffect(searching ? 0.96 : 1, anchor: .bottom)
         .animation(.spring(response: 0.4, dampingFraction: 0.86), value: collapsed)
     }
 
@@ -32,7 +33,7 @@ struct BottomChrome: View {
             }
             Button(action: onSearch) {
                 Text(tab.isBlank ? "搜索或输入网址" : (tab.url?.displayHost ?? ""))
-                    .font(.system(size: collapsed ? 13 : 16, weight: .medium, design: .rounded))
+                    .font(.system(size: collapsed ? 13 : 16, weight: .medium, design: .rounded)).contentTransition(.opacity).animation(.easeInOut(duration: 0.2), value: tab.url)
                     .foregroundStyle(tab.isBlank ? theme.inkSoft : theme.ink)
                     .lineLimit(1).frame(maxWidth: .infinity, alignment: collapsed ? .center : .leading)
             }.buttonStyle(.plain)
@@ -78,7 +79,7 @@ struct BottomChrome: View {
             bar("chevron.right", on: tab.canGoForward) { tab.goForward() }
             bar("plus", on: true) { store.newTab(isPrivate: tab.isPrivate) }
             ZStack {
-                bar("square.on.square", on: true) { store.showSwitcher = true }
+                bar("square.on.square", on: true) { onTabs() }
                 Text("\(store.tabs.filter { $0.isPrivate == tab.isPrivate }.count)")
                     .font(.system(size: 9, weight: .bold, design: .rounded)).foregroundStyle(theme.ink).offset(x: 0.5, y: 1.5).allowsHitTesting(false)
             }
@@ -93,6 +94,6 @@ struct BottomChrome: View {
             Image(systemName: icon).font(.system(size: 18, weight: .medium))
                 .foregroundStyle(on ? theme.ink : theme.inkSoft.opacity(0.4))
                 .frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
-        }.buttonStyle(.plain).disabled(!on)
+        }.buttonStyle(PressableStyle(scale: 0.88)).disabled(!on)
     }
 }

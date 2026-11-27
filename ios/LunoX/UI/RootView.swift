@@ -9,36 +9,38 @@ struct RootView: View {
     @State private var showMenu = false
     @State private var showSite = false
     @State private var showFind = false
+    @State private var showHero = false
     @State private var demoRoute: MenuRoute?
     @Namespace private var ns
+    @Namespace private var heroNS
 
     var body: some View {
         ZStack {
             background.ignoresSafeArea()
 
             if let tab = store.current { TabContent(tab: tab).id(tab.id).ignoresSafeArea() }
+            if showHero, let t = store.current { HeroSnapshot(tab: t, ns: heroNS).zIndex(1) }
 
             VStack(spacing: 8) {
                 StatusPills()
                 Spacer()
                 if let tab = store.current {
-                    if showFind { FindBar(tab: tab) { withAnimation(.snappy) { showFind = false } } }
+                    if showFind { FindBar(tab: tab) { withAnimation(.snappy) { showFind = false } }.transition(.move(edge: .bottom).combined(with: .opacity)) }
                     BottomChrome(tab: tab, ns: ns, searching: searching,
-                                 onSearch: { Haptics.soft(); withAnimation(.spring(response: 0.42, dampingFraction: 0.84)) { searching = true } },
-                                 onSite: { showSite = true }, onMenu: { showMenu = true })
+                                 onSearch: openSearch, onSite: { showSite = true }, onMenu: { showMenu = true }, onTabs: openSwitcher)
                 }
             }
-            .padding(.bottom, 2)
+            .padding(.bottom, 2).zIndex(2)
 
             if searching, let tab = store.current {
                 SearchOverlay(tab: tab, ns: ns) { withAnimation(.spring(response: 0.38, dampingFraction: 0.9)) { searching = false } }
-                    .transition(.opacity)
+                    .transition(.opacity).zIndex(3)
             }
             if store.showSwitcher {
-                TabSwitcher().transition(.opacity.combined(with: .scale(scale: 1.04)))
+                TabSwitcher(ns: heroNS, pick: pickTab).transition(.opacity).zIndex(4)
             }
         }
-        .animation(.spring(response: 0.42, dampingFraction: 0.88), value: store.showSwitcher)
+        .onChange(of: store.searchRequest) { _, _ in openSearch() }
         .sheet(isPresented: $showMenu) {
             MenuSheet(onFind: { withAnimation(.snappy) { showFind = true } }, initialRoute: demoRoute).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         }
@@ -52,6 +54,30 @@ struct RootView: View {
 
     @ViewBuilder private var background: some View {
         if let t = store.current, !t.isBlank, let c = t.tint { c } else { theme.background }
+    }
+
+    private func openSearch() {
+        Haptics.soft()
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.84)) { searching = true }
+    }
+
+    /// The live page shrinks into its tab card (a snapshot stands in for the web view while it moves).
+    private func openSwitcher() {
+        guard let t = store.current, !store.showSwitcher else { return }
+        Haptics.soft()
+        Task {
+            await t.captureHero()
+            showHero = true
+            try? await Task.sleep(nanoseconds: 40_000_000)
+            withAnimation(.spring(response: 0.52, dampingFraction: 0.86)) { showHero = false; store.showSwitcher = true }
+        }
+    }
+
+    /// The chosen card grows back to full screen, then the live page takes over.
+    private func pickTab(_ t: Tab) {
+        store.selectTab(t)
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.88)) { store.showSwitcher = false; showHero = true }
+        Task { try? await Task.sleep(nanoseconds: 600_000_000); showHero = false }
     }
 }
 
@@ -135,6 +161,7 @@ enum Demo {
     }
     @MainActor static func apply(to s: Settings) {
         if let t = value("theme") { s.prefs.themeID = t }
+        if let a = value("appearance") { s.prefs.appearance = a == "dark" ? .dark : .light }
         if value("demo") != nil { s.prefs.restoreTabs = false; s.prefs.appLock = false }
     }
 }
