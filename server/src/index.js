@@ -1,5 +1,6 @@
 'use strict';
 const https = require('node:https');
+const http = require('node:http');
 const fs = require('node:fs');
 const { config } = require('./config');
 const sec = require('./security');
@@ -16,6 +17,21 @@ const SEC_HEADERS = {
   'strict-transport-security': 'max-age=31536000',
   'content-security-policy': "default-src 'none'",
 };
+
+// Cloudflare quick-tunnel hostname, read from cloudflared's local metrics endpoint (cached 20s).
+let edgeCache = { at: 0, host: null };
+function edgeHost() {
+  if (!config.edgeMetrics) return Promise.resolve(null);
+  if (Date.now() - edgeCache.at < 20000) return Promise.resolve(edgeCache.host);
+  return new Promise((resolve) => {
+    const done = (h) => { edgeCache = { at: Date.now(), host: h }; resolve(h); };
+    const r = http.get(`http://${config.edgeMetrics}/quicktunnel`, { timeout: 1000 }, (res) => {
+      let b = ''; res.on('data', (c) => { if (b.length < 2000) b += c; });
+      res.on('end', () => { try { const h = JSON.parse(b).hostname; done(/^[a-z0-9.-]+$/i.test(h) ? h : null); } catch { done(null); } });
+    });
+    r.on('error', () => done(null)); r.on('timeout', () => { r.destroy(); done(null); });
+  });
+}
 
 function send(res, status, obj) {
   const body = Buffer.from(JSON.stringify(obj));
@@ -37,7 +53,7 @@ const readJson = async (req) => {
 };
 
 async function route(req, res) {
-  const ip = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  const ip = sec.clientIp(req);
   const url = new URL(req.url, 'https://x');
   const p = url.pathname;
 
@@ -52,6 +68,16 @@ async function route(req, res) {
 
   if (req.method === 'GET' && p === '/v1/health') {
     return send(res, 200, { ok: true, v: 1, now: Date.now(), tunnels: stats().active, llm: !!config.llm.apiKey, search: !!config.search.provider });
+  }
+
+  if (req.method === 'GET' && p === '/v1/config') {      // the app configures itself from this: no manual fields
+    return send(res, 200, { v: 2, edge: await edgeHost(), llm: llm.publicInfo(), search: { provider: config.search.provider || 'ddg' } });
+  }
+
+  if (req.method === 'PUT' && p === '/v1/admin/llm') {    // model API settings; the key is write-only
+    llm.save(await readJson(req));
+    sec.log('llm_updated', { key: key.hash });
+    return send(res, 200, { ok: true, llm: llm.publicInfo() });
   }
 
   if (req.method === 'GET' && p === '/v1/fetch') {
@@ -127,6 +153,14 @@ async function route(req, res) {
   return send(res, 404, { error: 'not found' });
 }
 
+function onRequest(req, res) {
+  route(req, res).catch((e) => {
+    sec.log('error', { path: req.url.split('?')[0], msg: e.message });
+    if (res.headersSent) return res.destroy();
+    send(res, e.status || (e.code === 'EBLOCKED' ? 403 : 502), { error: e.status ? e.message : 'upstream error' });
+  });
+}
+
 function createServer() {
   const srv = https.createServer({
     cert: fs.readFileSync(config.tlsCert),
@@ -134,14 +168,16 @@ function createServer() {
     minVersion: 'TLSv1.2',
     requestTimeout: 120000,
     headersTimeout: 15000,
-  }, (req, res) => {
-    route(req, res).catch((e) => {
-      sec.log('error', { path: req.url.split('?')[0], msg: e.message });
-      if (res.headersSent) return res.destroy();
-      send(res, e.status || (e.code === 'EBLOCKED' ? 403 : 502), { error: e.status ? e.message : 'upstream error' });
-    });
-  });
+  }, onRequest);
   srv.on('connect', handleConnect);
+  srv.on('upgrade', handleUpgrade);
+  srv.on('clientError', (_e, s) => s.destroy());
+  return srv;
+}
+
+/** Loopback-only plain HTTP, for cloudflared (TLS is terminated at Cloudflare's edge and re-encrypted inside the tunnel). */
+function createLocalServer() {
+  const srv = http.createServer({ requestTimeout: 120000, headersTimeout: 15000 }, onRequest);
   srv.on('upgrade', handleUpgrade);
   srv.on('clientError', (_e, s) => s.destroy());
   return srv;
@@ -151,9 +187,11 @@ if (require.main === module) {
   if (config.apiKeys.length === 0 || config.apiKeys.some((k) => k.length < 24)) {
     console.error('LUNOX_API_KEYS must contain at least one key of >= 24 chars'); process.exit(1);
   }
+  llm.loadSaved();
   createServer().listen(config.port, config.bind, () => sec.log('listening', { port: config.port }));
+  if (config.localHttpPort) createLocalServer().listen(config.localHttpPort, '127.0.0.1', () => sec.log('listening_local', { port: config.localHttpPort }));
   process.on('uncaughtException', (e) => sec.log('uncaught', { msg: e.message }));
   process.on('unhandledRejection', (e) => sec.log('unhandled', { msg: String(e && e.message) }));
 }
 
-module.exports = { createServer };
+module.exports = { createServer, createLocalServer };

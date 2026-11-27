@@ -11,6 +11,7 @@ struct BottomChrome: View {
     var onSite: () -> Void
     var onMenu: () -> Void
     var onTabs: () -> Void
+    var onReader: () -> Void
 
     var body: some View {
         let collapsed = store.barsCollapsed && !tab.isBlank
@@ -37,6 +38,11 @@ struct BottomChrome: View {
                     .foregroundStyle(tab.isBlank ? theme.inkSoft : theme.ink)
                     .lineLimit(1).frame(maxWidth: .infinity, alignment: collapsed ? .center : .leading)
             }.buttonStyle(.plain)
+            if !collapsed && tab.readable && !tab.isLoading {
+                Button { Haptics.tap(); onReader() } label: {
+                    Image(systemName: "text.page").font(.system(size: 15, weight: .semibold)).foregroundStyle(theme.accent)
+                }.buttonStyle(PressableStyle(scale: 0.85)).transition(.scale.combined(with: .opacity))
+            }
             if !collapsed && !tab.isBlank {
                 Button { Haptics.tap(); tab.isLoading ? tab.stop() : tab.reload() } label: {
                     Image(systemName: tab.isLoading ? "xmark" : "arrow.clockwise").font(.system(size: 15, weight: .semibold)).foregroundStyle(theme.inkSoft)

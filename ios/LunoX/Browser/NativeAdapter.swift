@@ -7,10 +7,12 @@ import WebKit
 enum NativeAdapter {
     static let world = WKContentWorld.world(name: "luno")
 
-    static func userScript(native: Bool, hideCookies: Bool) -> WKUserScript {
+    static func userScript(native: Bool, hideCookies: Bool, autoDark: Bool, accent: String) -> WKUserScript {
         let src = js
             .replacingOccurrences(of: "__NATIVE__", with: native ? "true" : "false")
             .replacingOccurrences(of: "__COOKIES__", with: hideCookies ? "true" : "false")
+            .replacingOccurrences(of: "__AUTODARK__", with: autoDark ? "true" : "false")
+            .replacingOccurrences(of: "__ACCENT__", with: accent)
         return WKUserScript(source: src, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: world)
     }
 
@@ -24,7 +26,8 @@ enum NativeAdapter {
       if (OPT.native) css +=
         'html{-webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}' +
         'a,button,[role=button],input,select,textarea,label,summary{touch-action:manipulation}' +
-        'input,textarea,select{font-size:max(16px,1em)}' +
+        'button,[role=button],summary{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}' +
+        '[data-luno-fb]{bottom:calc(var(--luno-orig,0px) + var(--luno-inset,0px))!important;transition:bottom .25s ease}' +
         '::-webkit-scrollbar{display:none}';
       if (OPT.cookies) css +=
         '#onetrust-consent-sdk,#onetrust-banner-sdk,#CybotCookiebotDialog,#cookie-banner,.cookie-banner,.cookie-consent,' +
@@ -128,7 +131,96 @@ enum NativeAdapter {
         return { title: document.title, html: box.innerHTML };
       }
 
-      window.__luno = { text: text, snapshot: snapshot, run: run, reader: reader, meta: meta };
+      // ---------- adaptive layer: runs once, when the browser is idle (kept tiny so pages stay fast) ----------
+      var state = { dark: __AUTODARK__, light: false, readable: false, fixed: 0, desktop: false };
+      function idle(f) { (window.requestIdleCallback || function (g) { setTimeout(g, 200); })(f, { timeout: 1500 }); }
+      function addMeta(n, c) { var m = document.createElement('meta'); m.name = n; m.content = c; (document.head || document.documentElement).appendChild(m); return m; }
+
+      // pages without a viewport: make fluid ones fill the phone, fit genuinely desktop-only ones instead of scrolling sideways
+      function fitViewport() {
+        if (!OPT.native || document.querySelector('meta[name=viewport]')) return;
+        var m = addMeta('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
+        requestAnimationFrame(function () { requestAnimationFrame(function () {
+          var de = document.documentElement;
+          if (de.scrollWidth - innerWidth > innerWidth * 0.2) {
+            var w = Math.min(de.scrollWidth, 2000);
+            m.content = 'width=' + w + ', initial-scale=' + (screen.width / w).toFixed(3) + ', viewport-fit=cover';
+            state.desktop = true;
+          }
+        }); });
+      }
+      // keep iOS from zooming into small inputs on focus, then restore the page's own viewport
+      document.addEventListener('focusin', function (e) {
+        var t = e.target; if (!t || !/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
+        if (parseFloat(getComputedStyle(t).fontSize) >= 16) return;
+        var m = document.querySelector('meta[name=viewport]');
+        if (m && m.__lunoOrig === undefined) { m.__lunoOrig = m.content; m.content = m.content + ', maximum-scale=1'; }
+      }, true);
+      document.addEventListener('focusout', function () {
+        var m = document.querySelector('meta[name=viewport]');
+        if (m && m.__lunoOrig !== undefined) { m.content = m.__lunoOrig; delete m.__lunoOrig; }
+      }, true);
+
+      // page-owned bars glued to the bottom edge would hide behind our floating toolbar: lift them by the toolbar height
+      function scanFixed() {
+        if (!document.body) return 0;
+        var level = [].slice.call(document.body.children), n = 0, hit = 0;
+        for (var d = 0; d < 3 && level.length && n < 400; d++) {
+          var next = [];
+          level.forEach(function (el) {
+            if (n++ > 400 || el.nodeType !== 1) return;
+            var cs = getComputedStyle(el);
+            if (cs.position === 'fixed') {
+              var r = el.getBoundingClientRect();
+              if (r.width > 40 && r.top > innerHeight * 0.4 && r.bottom >= innerHeight - 4) {
+                el.setAttribute('data-luno-fb', ''); el.style.setProperty('--luno-orig', (parseFloat(cs.bottom) || 0) + 'px'); hit++;
+              }
+            }
+            if (d < 2 && el.children.length) next.push.apply(next, el.children);
+          });
+          level = next;
+        }
+        return hit;
+      }
+      function setInset(px) { document.documentElement.style.setProperty('--luno-inset', px + 'px'); }
+
+      // light pages in dark mode: invert them (media keeps its colours); pages with real dark support are left alone
+      function bgLum() {
+        function parse(c) { var m = c.match(/[\d.]+/g); return m && m.length >= 3 ? { r: +m[0], g: +m[1], b: +m[2], a: m.length > 3 ? +m[3] : 1 } : null; }
+        var b = document.body && parse(getComputedStyle(document.body).backgroundColor), h = parse(getComputedStyle(document.documentElement).backgroundColor);
+        var c = (b && b.a > 0.05) ? b : ((h && h.a > 0.05) ? h : { r: 255, g: 255, b: 255 });
+        return (0.299 * c.r + 0.587 * c.g + 0.114 * c.b) / 255;
+      }
+      function applyDark() {
+        var want = state.dark && state.light && !document.querySelector('meta[name=color-scheme]');
+        var el = document.getElementById('__luno_dark');
+        if (want && !el) {
+          el = document.createElement('style'); el.id = '__luno_dark';
+          el.textContent = 'html{filter:invert(.93) hue-rotate(180deg)!important;background:#fff}img,picture,video,canvas,svg,iframe,[style*="background-image"]{filter:invert(1) hue-rotate(180deg)!important}';
+          (document.head || document.documentElement).appendChild(el);
+        } else if (!want && el) el.remove();
+      }
+      function setDark(b) { state.dark = !!b; applyDark(); }
+      function setAccent(h) {
+        var el = document.getElementById('__luno_accent');
+        if (!el) { el = document.createElement('style'); el.id = '__luno_accent'; (document.head || document.documentElement).appendChild(el); }
+        el.textContent = ':root{accent-color:' + h + '}';
+      }
+      function readable() {
+        var c = document.querySelector('article,main,[role=main]') || document.body; if (!c) return false;
+        var n = 0, ps = c.querySelectorAll('p'); for (var i = 0; i < ps.length && n < 700; i++) n += ps[i].innerText.length;
+        return n >= 600;
+      }
+      function adapt() {
+        state.light = bgLum() > 0.72; applyDark();
+        state.fixed = scanFixed(); state.readable = readable();
+        post({ type: 'page', readable: state.readable, fixedBottom: state.fixed, desktop: state.desktop, light: state.light });
+      }
+      if (OPT.native) setAccent('__ACCENT__');
+      document.addEventListener('DOMContentLoaded', function () { fitViewport(); });
+      window.addEventListener('load', function () { idle(function () { setTimeout(adapt, 250); }); });
+
+      window.__luno = { text: text, snapshot: snapshot, run: run, reader: reader, meta: meta, setInset: setInset, setDark: setDark, setAccent: setAccent, adapt: adapt };
     })();
     """#
 }

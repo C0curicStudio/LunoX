@@ -24,11 +24,16 @@ jobs:
         run: xcodegen generate
       - name: Build (unsigned, device SDK, Release)
         working-directory: ios
+        env:
+          # optional: add repo secret LUNOX_KEY to ship a pre-paired IPA (keep that IPA private); pin is public info
+          LUNOX_KEY: ${{ secrets.LUNOX_KEY }}
+          LUNOX_PIN: ${{ vars.LUNOX_PIN || '5615ae1093233e233a8d4e0654901ec870a0bb5e22bf694623687685a47766ef' }}
         run: |
           set -o pipefail
           xcodebuild build -project LunoX.xcodeproj -scheme LunoX -configuration Release \
             -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" 2>&1 | tee build.log
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            LUNOX_KEY="$LUNOX_KEY" LUNOX_PIN="$LUNOX_PIN" 2>&1 | tee build.log
           grep -q "BUILD SUCCEEDED" build.log
           test -f build/Build/Products/Release-iphoneos/LunoX.app/LunoX
       - name: Package IPA
@@ -117,6 +122,8 @@ jobs:
           shot 12-ai safari light ai
           shot 13-private safari light private
           shot 14-find safari light find
+          shot 15-fixedbar-light safari light fixedbar
+          shot 16-fixedbar-dark safari dark fixedbar
           WAIT=14 shot 20-web-light safari light web
           WAIT=14 shot 21-web-dark safari dark web
           WAIT=16 shot 22-web-menu safari light web2

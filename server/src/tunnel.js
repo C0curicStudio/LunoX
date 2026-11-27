@@ -53,7 +53,7 @@ class Parser {
 let active = 0;
 
 function handleUpgrade(req, socket, head) {
-  const ip = (socket.remoteAddress || '').replace(/^::ffff:/, '');
+  const ip = sec.clientIp(req);
   socket.on('error', () => {});
   const refuse = (code, msg) => socket.end(`HTTP/1.1 ${code} ${msg}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
 
@@ -68,51 +68,71 @@ function handleUpgrade(req, socket, head) {
   const wsKey = req.headers['sec-websocket-key'];
   if (!wsKey || !sec.allow(`ws:${key.id}`, 10)) return refuse(wsKey ? 429 : 400, 'Bad Request');
 
-  const host = url.searchParams.get('host') || '';
-  const port = Number(url.searchParams.get('port'));
-  if (!/^[A-Za-z0-9.\-:]{1,253}$/.test(host) || !sec.isPortAllowed(port)) return refuse(403, 'Forbidden');
-  try { sec.assertPublicHost(host); } catch { return refuse(403, 'Forbidden'); }
+  // Warm mode: no host/port in the URL. The socket is opened early (saving the TLS+upgrade round trips on the
+  // user's critical path) and the target arrives later as the first text frame {"host":..,"port":..}.
+  const qHost = url.searchParams.get('host');
+  const warm = qHost === null;
   if (active >= config.limits.maxTunnels) return refuse(503, 'Busy');
+  if (!warm && !validTarget(qHost, Number(url.searchParams.get('port')))) return refuse(403, 'Forbidden');
 
   const accept = crypto.createHash('sha1').update(wsKey + GUID).digest('base64');
   socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
   socket.setNoDelay(true);
 
   active++;
-  let up = 0, down = 0, closed = false;
-  const upstream = net.connect({ host, port, lookup: sec.safeLookup, timeout: 10000 });
-  upstream.setNoDelay(true);
+  let up = 0, down = 0, closed = false, upstream = null, target = { host: qHost, port: Number(url.searchParams.get('port')) };
   const finish = (why) => {
     if (closed) return; closed = true; active--;
     try { socket.write(frame(8, Buffer.alloc(0))); } catch { /* ignore */ }
-    socket.destroy(); upstream.destroy();
-    sec.log('ws_tunnel', { key: key.hash, ip, host, port, up, down, why });
+    socket.destroy(); if (upstream) upstream.destroy();
+    if (upstream) sec.log('ws_tunnel', { key: key.hash, ip, host: target.host, port: target.port, up, down, why });
   };
 
+  function startUpstream(host, port) {
+    target = { host, port };
+    upstream = net.connect({ host, port, lookup: sec.safeLookup, timeout: 10000 });
+    upstream.setNoDelay(true);
+    upstream.once('connect', () => {
+      upstream.setTimeout(config.limits.tunnelIdleMs);
+      socket.setTimeout(config.limits.tunnelIdleMs);
+      socket.write(frame(1, Buffer.from('ok')));
+      upstream.on('data', (d) => {
+        down += d.length;
+        for (let i = 0; i < d.length; i += 65536) if (!socket.write(frame(2, d.subarray(i, i + 65536)))) { upstream.pause(); socket.once('drain', () => upstream.resume()); break; }
+      });
+    });
+    upstream.on('error', (e) => {
+      if (upstream.connecting) { try { socket.write(frame(1, Buffer.from(`err:${e.code === 'EBLOCKED' ? 'blocked' : 'connect'}`))); } catch { /* ignore */ } }
+      finish('upstream-error');
+    });
+    upstream.on('timeout', () => finish('idle'));
+    upstream.on('end', () => finish('upstream-end'));
+  }
+
   const parser = new Parser((op, data) => {
-    if (op === 2 || op === 1) { if (upstream.writable) { up += data.length; if (!upstream.write(data)) { socket.pause(); upstream.once('drain', () => socket.resume()); } } }
+    if (op === 1 && !upstream) {                       // warm socket receives its target
+      let t; try { t = JSON.parse(data.toString('utf8')); } catch { return finish('bad-target'); }
+      if (!t || typeof t.host !== 'string' || !validTarget(t.host, Number(t.port))) {
+        try { socket.write(frame(1, Buffer.from('err:blocked'))); } catch { /* ignore */ }
+        return finish('refused');
+      }
+      return startUpstream(t.host, Number(t.port));
+    }
+    if (op === 2 || op === 1) { if (upstream && upstream.writable) { up += data.length; if (!upstream.write(data)) { socket.pause(); upstream.once('drain', () => socket.resume()); } } }
     else if (op === 8) finish('client-close');
     else if (op === 9) socket.write(frame(10, data));
   }, (m) => finish(m));
 
-  upstream.once('connect', () => {
-    upstream.setTimeout(config.limits.tunnelIdleMs);
-    socket.write(frame(1, Buffer.from('ok')));
-    upstream.on('data', (d) => {
-      down += d.length;
-      for (let i = 0; i < d.length; i += 65536) if (!socket.write(frame(2, d.subarray(i, i + 65536)))) { upstream.pause(); socket.once('drain', () => upstream.resume()); break; }
-    });
-  });
-  upstream.on('error', (e) => {
-    if (upstream.connecting) { try { socket.write(frame(1, Buffer.from(`err:${e.code === 'EBLOCKED' ? 'blocked' : 'connect'}`))); } catch { /* ignore */ } }
-    finish('upstream-error');
-  });
-  upstream.on('timeout', () => finish('idle'));
-  upstream.on('end', () => finish('upstream-end'));
-  socket.setTimeout(config.limits.tunnelIdleMs, () => finish('idle'));
+  socket.setTimeout(warm ? 90000 : config.limits.tunnelIdleMs, () => finish(upstream ? 'idle' : 'warm-expired'));
   socket.on('data', (d) => parser.push(d));
   socket.on('close', () => finish('client-gone'));
+  if (!warm) startUpstream(target.host, target.port);
   if (head && head.length) parser.push(head);
+}
+
+function validTarget(host, port) {
+  if (!/^[A-Za-z0-9.\-:]{1,253}$/.test(host) || !sec.isPortAllowed(port)) return false;
+  try { sec.assertPublicHost(host); return true; } catch { return false; }
 }
 
 module.exports = { handleUpgrade, frame, Parser };

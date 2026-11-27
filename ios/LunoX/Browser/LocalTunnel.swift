@@ -20,6 +20,10 @@ final class LocalTunnel: NSObject, URLSessionDelegate {
     private(set) var port: UInt16 = 0
     let token = (UUID().uuidString + UUID().uuidString).replacingOccurrences(of: "-", with: "")
     fileprivate var live: [ObjectIdentifier: TunnelConn] = [:]
+    // Pre-opened WebSockets: a new connection skips the TCP+TLS+upgrade round trips (browsers open dozens at a time).
+    private var warm: [(task: URLSessionWebSocketTask, at: Date)] = []
+    private let warmLock = NSLock()
+    private let warmTarget = 3
 
     var target: TunnelTarget? {
         get { lock.lock(); defer { lock.unlock() }; return _target }
@@ -65,7 +69,49 @@ final class LocalTunnel: NSObject, URLSessionDelegate {
         }
     }
 
+    private func makeSocket(_ t: TunnelTarget, host: String? = nil, port: Int? = nil) -> URLSessionWebSocketTask? {
+        var c = URLComponents()
+        c.scheme = "wss"; c.host = t.host; c.port = t.port; c.path = "/v1/tunnel"
+        if let host, let port { c.queryItems = [URLQueryItem(name: "host", value: host), URLQueryItem(name: "port", value: String(port))] }
+        guard let url = c.url else { return nil }
+        var req = URLRequest(url: url)
+        req.setValue("Bearer \(t.key)", forHTTPHeaderField: "Authorization")
+        let task = session.webSocketTask(with: req)
+        task.maximumMessageSize = 4 * 1024 * 1024
+        task.resume()
+        return task
+    }
+
+    /// A ready socket (pre-opened if possible) already told to connect to host:port.
+    fileprivate func socket(for host: String, port: Int) -> URLSessionWebSocketTask? {
+        guard let t = target else { return nil }
+        warmLock.lock()
+        warm.removeAll { Date().timeIntervalSince($0.at) > 45 }          // the server drops idle warm sockets after 90s
+        let w = warm.popLast()
+        warmLock.unlock()
+        topUpWarm()
+        if let w {
+            let msg = "{\"host\":\"\(host)\",\"port\":\(port)}"
+            w.task.send(.string(msg)) { _ in }
+            return w.task
+        }
+        return makeSocket(t, host: host, port: port)
+    }
+
+    func topUpWarm() {
+        guard let t = target else { return }
+        warmLock.lock()
+        let need = warmTarget - warm.count
+        warmLock.unlock()
+        guard need > 0 else { return }
+        for _ in 0..<need {
+            guard let task = makeSocket(t) else { continue }
+            warmLock.lock(); warm.append((task, Date())); warmLock.unlock()
+        }
+    }
+
     func stop() {
+        warmLock.lock(); warm.forEach { $0.task.cancel(with: .goingAway, reason: nil) }; warm.removeAll(); warmLock.unlock()
         listener?.cancel(); listener = nil; port = 0
         queue.async { self.live.values.forEach { $0.close() }; self.live.removeAll() }
     }
@@ -142,16 +188,9 @@ fileprivate final class TunnelConn {
         let host = String(hp[..<colon]).trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
         guard let t = owner.target else { return reply("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n", thenClose: true) }
 
-        var c = URLComponents()
-        c.scheme = "wss"; c.host = t.host; c.port = t.port; c.path = "/v1/tunnel"
-        c.queryItems = [URLQueryItem(name: "host", value: host), URLQueryItem(name: "port", value: String(port))]
-        guard let url = c.url else { return close() }
-        var req = URLRequest(url: url)
-        req.setValue("Bearer \(t.key)", forHTTPHeaderField: "Authorization")
-        let task = owner.session.webSocketTask(with: req)
-        task.maximumMessageSize = 4 * 1024 * 1024
+        _ = t
+        guard let task = owner.socket(for: host, port: port) else { return close() }
         ws = task
-        task.resume()
         task.receive { [weak self] result in
             guard let self else { return }
             guard case .success(let m) = result, case .string(let s) = m, s == "ok" else {

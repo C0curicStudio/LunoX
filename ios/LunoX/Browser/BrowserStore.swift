@@ -32,6 +32,10 @@ final class BrowserStore: ObservableObject {
     @Published var searchRequest = 0
     @Published private(set) var faviconRev = 0
     private(set) var webStyle: UIUserInterfaceStyle = .unspecified
+    private(set) var isDark = false
+    private(set) var accentHex = "#0A84FF"
+    private(set) var pageBackdrop = Color.white
+    private var warmView: WKWebView?
     private let favDir = Paths.dir("Favicons", excludeFromBackup: true)
     private var missingIcons = Set<String>()
 
@@ -64,6 +68,7 @@ final class BrowserStore: ObservableObject {
         #if DEBUG
         Demo.apply(to: s)
         #endif
+        warmUp()
         Task { await blocker.prepare() ; restore() }
         Task { [weak self] in                                   // keep picking the fastest route into the server
             while let self {
@@ -140,6 +145,25 @@ final class BrowserStore: ObservableObject {
     func setBars(collapsed: Bool) {
         guard barsCollapsed != collapsed else { return }
         withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { barsCollapsed = collapsed }
+        current?.syncInset()
+    }
+
+    /// Spin up WebKit's web-content + networking processes before the first page is requested.
+    private func warmUp() {
+        let cfg = WKWebViewConfiguration(); cfg.websiteDataStore = normalStore
+        let w = WKWebView(frame: .zero, configuration: cfg)
+        w.loadHTMLString("<html></html>", baseURL: nil)
+        warmView = w
+        Task { try? await Task.sleep(nanoseconds: 5_000_000_000); warmView = nil }
+    }
+
+    func applyTheme(_ t: Theme) {
+        isDark = t.scheme == .dark; accentHex = t.accent.hexString; pageBackdrop = t.bgBottom
+        tabs.forEach {
+            $0.webView?.underPageBackgroundColor = UIColor(t.bgBottom)
+            $0.webView?.backgroundColor = UIColor(t.bgBottom)
+            $0.applyLook(dark: settings.prefs.autoDarkPages && isDark, accent: accentHex)
+        }
     }
 
     // MARK: omnibox

@@ -41,6 +41,8 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
     @Published var group: String?
     @Published var zoom = 100
     @Published var hero: UIImage?
+    @Published var readable = false
+    @Published var fixedBottom = 0
 
     private(set) var webView: WKWebView?
     var restoreState: Data?
@@ -80,12 +82,13 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         wv.uiDelegate = self
         wv.allowsBackForwardNavigationGestures = true
         wv.allowsLinkPreview = true
-        wv.isOpaque = false
-        wv.backgroundColor = .clear
-        wv.scrollView.backgroundColor = .clear
+        wv.isOpaque = true                      // opaque layers composite faster than blended ones
+        wv.backgroundColor = UIColor(store.pageBackdrop)
+        wv.scrollView.backgroundColor = UIColor(store.pageBackdrop)
         wv.scrollView.contentInsetAdjustmentBehavior = .always
         wv.scrollView.decelerationRate = .normal
         wv.overrideUserInterfaceStyle = store.webStyle
+        wv.underPageBackgroundColor = UIColor(store.pageBackdrop)
         #if DEBUG
         wv.isInspectable = true
         #endif
@@ -110,8 +113,9 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
             wv.observe(\.hasOnlySecureContent) { [weak self] w, _ in let v = w.hasOnlySecureContent; Task { @MainActor in self?.secure = v } },
             wv.observe(\.themeColor) { [weak self] w, _ in let c = w.themeColor; Task { @MainActor in if let c { self?.tint = Color(uiColor: c) } } },
             wv.scrollView.observe(\.contentOffset) { [weak self] sv, _ in
+                // KVO fires on the main thread every frame while scrolling: stay synchronous, no Task allocation
                 let y = sv.contentOffset.y, drag = sv.isDragging || sv.isDecelerating
-                Task { @MainActor in self?.scrolled(y, dragging: drag) }
+                MainActor.assumeIsolated { self?.scrolled(y, dragging: drag) }
             },
         ]
         webView = wv
@@ -130,7 +134,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         cfg.preferences.isFraudulentWebsiteWarningEnabled = true
         let ucc = WKUserContentController()
         ucc.add(store.scriptHandler, contentWorld: NativeAdapter.world, name: "luno")
-        ucc.addUserScript(NativeAdapter.userScript(native: s.prefs.nativeMode, hideCookies: s.prefs.hideCookieBanners))
+        ucc.addUserScript(NativeAdapter.userScript(native: s.prefs.nativeMode, hideCookies: s.prefs.hideCookieBanners, autoDark: s.prefs.autoDarkPages && store.isDark, accent: store.accentHex))
         store.extensions.userScripts().forEach { ucc.addUserScript($0) }
         if s.prefs.blockTrackers, let list = store.blocker.list { ucc.add(list) }
         cfg.userContentController = ucc
@@ -157,18 +161,25 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
 
     // MARK: navigation
 
+    /// Starts loading immediately. Reachability is checked in the background and only changes the route
+    /// (and reloads once) if the site turns out to be blocked or much faster through the server.
     func navigate(_ url: URL) {
         self.url = url
         let wv = ensureWebView()
-        note = nil
         showingCachedCopy = false
-        Task {
-            let hint = Task { try? await Task.sleep(nanoseconds: 800_000_000); if !Task.isCancelled { self.note = "正在检测网络…" } }
-            let route = await store.router.prepare(for: url)
-            hint.cancel()
-            note = route == .proxy ? "已通过服务器加速" : nil
-            wv.load(URLRequest(url: url))
+        readable = false; fixedBottom = 0
+        switch store.router.cachedRoute(for: url) {
+        case .proxy?: note = "已通过服务器加速"
+        case .direct?: note = nil
+        case nil:
+            note = nil
+            store.router.resolveInBackground(url) { [weak self] in
+                guard let self, self.url?.host == url.host else { return }
+                self.note = "已改走服务器加速"
+                self.webView?.load(URLRequest(url: url))
+            }
         }
+        wv.load(URLRequest(url: url))
     }
 
     func goBack() { webView?.goBack() }
@@ -224,6 +235,11 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
 
     func handle(_ type: String, _ body: [String: Any]) {
         switch type {
+        case "page":
+            readable = (body["readable"] as? Bool) ?? false
+            fixedBottom = (body["fixedBottom"] as? Int) ?? 0
+            syncInset()
+            if fixedBottom > 0, store.current === self { store.setBars(collapsed: true) }   // the page has its own bottom bar: stay out of its way
         case "meta":
             if let t = body["title"] as? String, !t.isEmpty { title = t }
             if let c = (body["themeColor"] as? String).flatMap(Tab.parseColor) ?? (body["bg"] as? String).flatMap(Tab.parseColor) { tint = Color(uiColor: c) }
@@ -246,6 +262,18 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
             return UIColor(red: nums[0] / 255, green: nums[1] / 255, blue: nums[2] / 255, alpha: 1)
         }
         return nil
+    }
+
+    /// Lift page-owned bottom bars above our floating toolbar (full toolbar vs. collapsed pill).
+    func syncInset() {
+        guard fixedBottom > 0 else { return }
+        let px = store.barsCollapsed ? 52 : 126
+        Task { _ = await js("window.__luno && window.__luno.setInset(\(px))") }
+    }
+    func applyLook(dark: Bool, accent: String) {
+        Task {
+            _ = await js("window.__luno && (window.__luno.setDark(\(dark)), window.__luno.setAccent('\(accent)'))")
+        }
     }
 
     // MARK: scroll -> collapse chrome
@@ -296,7 +324,9 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         let site = store.settings.site(host)
         preferences.allowsContentJavaScript = site.javascript
         preferences.preferredContentMode = site.desktop ? .desktop : .mobile
-        if action.navigationType != .backForward { _ = await store.router.prepare(for: url) }
+        if action.navigationType != .backForward, store.router.cachedRoute(for: url) == nil {
+            store.router.resolveInBackground(url) { [weak self] in if self?.webView?.url?.host == url.host { self?.webView?.load(URLRequest(url: url)) } }
+        }
         return (.allow, preferences)
     }
 
@@ -331,7 +361,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
             guard self.webView === webView, webView.url == u else { return }
             let cfg = WKSnapshotConfiguration(); cfg.snapshotWidth = 340
             webView.takeSnapshot(with: cfg) { [weak self] img, _ in Task { @MainActor in self?.thumbnail = img } }
-            if !isPrivate, !wasArchive, store.settings.prefs.offlineCache, !showingCachedCopy {
+            if !isPrivate, !wasArchive, store.settings.prefs.offlineCache, !showingCachedCopy, store.current === self, !webView.isLoading {
                 store.offline.limitBytes = store.settings.prefs.offlineLimitMB * 1024 * 1024
                 store.offline.save(url: u, title: webView.title ?? title, from: webView)
             }

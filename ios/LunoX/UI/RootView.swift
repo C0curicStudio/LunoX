@@ -10,7 +10,7 @@ struct RootView: View {
     @State private var showSite = false
     @State private var showFind = false
     @State private var showHero = false
-    @State private var demoRoute: MenuRoute?
+    @State private var menuRoute: MenuRoute?
     @Namespace private var ns
     @Namespace private var heroNS
 
@@ -27,7 +27,8 @@ struct RootView: View {
                 if let tab = store.current {
                     if showFind { FindBar(tab: tab) { withAnimation(.snappy) { showFind = false } }.transition(.move(edge: .bottom).combined(with: .opacity)) }
                     BottomChrome(tab: tab, ns: ns, searching: searching,
-                                 onSearch: openSearch, onSite: { showSite = true }, onMenu: { showMenu = true }, onTabs: openSwitcher)
+                                 onSearch: openSearch, onSite: { showSite = true }, onMenu: { showMenu = true }, onTabs: openSwitcher,
+                                 onReader: { menuRoute = .reader; showMenu = true })
                 }
             }
             .padding(.bottom, 2).zIndex(2)
@@ -41,8 +42,8 @@ struct RootView: View {
             }
         }
         .onChange(of: store.searchRequest) { _, _ in openSearch() }
-        .sheet(isPresented: $showMenu) {
-            MenuSheet(onFind: { withAnimation(.snappy) { showFind = true } }, initialRoute: demoRoute).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+        .sheet(isPresented: $showMenu, onDismiss: { menuRoute = nil }) {
+            MenuSheet(onFind: { withAnimation(.snappy) { showFind = true } }, initialRoute: menuRoute).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         }
         #if DEBUG
         .task { await runDemo() }
@@ -165,6 +166,17 @@ enum Demo {
         if value("demo") != nil { s.prefs.restoreTabs = false; s.prefs.appLock = false }
     }
 }
+extension Demo {
+    static let fixedBarPage = #"""
+    <html><body style="margin:0;font:16px -apple-system;background:#fff;color:#111">
+    <div style="padding:24px"><h1>Demo page</h1><p>This page has no viewport meta tag and its own bottom tab bar glued to the screen edge.
+    The adapter should make it fill the phone, lift the bar above the toolbar and, in dark mode, invert it.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</p>
+    <input placeholder="small input" style="font-size:12px;padding:6px;width:60%"></div>
+    <div style="position:fixed;left:0;right:0;bottom:0;height:56px;background:#f2f2f7;border-top:1px solid #ccc;display:flex;justify-content:space-around;align-items:center">
+    <span>Home</span><span>Search</span><span>Cart</span><span>Me</span></div></body></html>
+    """#
+}
 extension RootView {
     @MainActor func runDemo() async {
         guard let d = Demo.value("demo") else { return }
@@ -179,11 +191,14 @@ extension RootView {
             store.newTab(url: URL(string: "https://example.com")); try? await Task.sleep(nanoseconds: 5_000_000_000)
             store.newTab(); store.showSwitcher = true
         case "private": store.newTab(isPrivate: true)
+        case "fixedbar":    // page with its own bottom bar and no viewport meta: exercises the adapter
+            let t = store.newTab(url: URL(string: "https://demo.lunox/"))
+            t.ensureWebView().loadHTMLString(Demo.fixedBarPage, baseURL: URL(string: "https://demo.lunox/"))
         case "menu": showMenu = true
         case "find": showFind = true
         default:
             if let r = ["bookmarks": MenuRoute.bookmarks, "history": .history, "downloads": .downloads, "offline": .offline,
-                        "extensions": .extensions, "themes": .themes, "settings": .settings, "ai": .ai][d] { demoRoute = r; showMenu = true }
+                        "extensions": .extensions, "themes": .themes, "settings": .settings, "ai": .ai][d] { menuRoute = r; showMenu = true }
         }
     }
 }

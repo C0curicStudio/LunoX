@@ -81,7 +81,7 @@ struct NewTabView: View {
             }
             .scrollIndicators(.hidden)
         }
-        .onAppear { withAnimation { shown = true }; for b in favorites { if let h = URL(string: b.url)?.host { store.ensureIcon(host: h) } } }
+        .onAppear { withAnimation { shown = true }; for b in favorites { if let h = URL(string: b.url)?.host { store.ensureIcon(host: h); Prefetch.dns(h) } } }
     }
 
     private var greeting: String {

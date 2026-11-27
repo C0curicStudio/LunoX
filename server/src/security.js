@@ -135,11 +135,18 @@ setInterval(() => {
   for (const [k, v] of buckets) if (now - v.ts > 60000) buckets.delete(k);
 }, 60000).unref();
 
+/** Behind cloudflared every request arrives from 127.0.0.1; the real client is in CF-Connecting-IP (trusted only from loopback). */
+function clientIp(req) {
+  const a = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  const cf = req.headers['cf-connecting-ip'];
+  return (a === '127.0.0.1' || a === '::1') && cf ? String(cf).slice(0, 64) : a;
+}
+
 function log(evt, data = {}) {
   process.stdout.write(JSON.stringify({ t: new Date().toISOString(), evt, ...data }) + '\n');
 }
 
 module.exports = {
   isBlockedIp, isPortAllowed, safeLookup, parseHttpUrl, assertPublicHost,
-  checkKey, bearerOf, proxyPasswordOf, isBanned, recordFail, recordOk, allow, log,
+  checkKey, bearerOf, proxyPasswordOf, clientIp, isBanned, recordFail, recordOk, allow, log,
 };

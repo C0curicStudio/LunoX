@@ -18,6 +18,7 @@ struct Prefs: Codable, Equatable {
     var blockPopups = true
     var appLock = false
     var nativeMode = true
+    var autoDarkPages = true
     var hideCookieBanners = true
     var offlineCache = true
     var offlineLimitMB = 300
@@ -43,8 +44,13 @@ final class Settings: ObservableObject {
     private let sitesFile = JSONFile<[String: SiteSetting]>("sites.json")
 
     init() {
-        prefs = file.load(Prefs())
+        var p = file.load(Prefs())
+        // Optional build-time pairing (CI secrets -> Info.plist) so the app needs no typing at all.
+        let info = Bundle.main.infoDictionary ?? [:]
+        if Pinning.normalize(p.gatewayPin).count != 64, let pin = info["LunoXPin"] as? String, Pinning.normalize(pin).count == 64 { p.gatewayPin = Pinning.normalize(pin) }
+        prefs = p
         sites = sitesFile.load([:])
+        if Keychain.get("gateway-key").isEmpty, let k = info["LunoXKey"] as? String, !k.isEmpty, !k.hasPrefix("$(") { Keychain.set(k, for: "gateway-key") }
     }
 
     var gatewayKey: String {

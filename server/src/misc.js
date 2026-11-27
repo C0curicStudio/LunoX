@@ -68,6 +68,28 @@ function getJson(url, headers) {
     req.on('timeout', () => req.destroy(new Error('timeout')));
   });
 }
+const strip = (h) => h.replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#x27;|&#39;/g, "'").replace(/\s+/g, ' ').trim();
+/** Parses DuckDuckGo's HTML results page (no API key needed). */
+function parseDdg(html) {
+  const out = [];
+  const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>([\s\S]*?)(?=<a[^>]+class="result__a"|$)/g;
+  let m;
+  while ((m = re.exec(html)) && out.length < 8) {
+    let href = m[1].replace(/&amp;/g, '&');
+    const u = /[?&]uddg=([^&]+)/.exec(href);
+    if (u) href = decodeURIComponent(u[1]);
+    if (href.startsWith('//')) href = 'https:' + href;
+    if (!/^https?:\/\//i.test(href)) continue;
+    const sn = /class="result__snippet"[^>]*>([\s\S]*?)<\/a>/.exec(m[3]);
+    out.push({ title: strip(m[2]), url: href, snippet: sn ? strip(sn[1]) : '' });
+  }
+  return out;
+}
+async function ddgSearch(q) {
+  const r = await fetchBuffer(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`, { 'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8' }, { maxBytes: 1 << 20, timeoutMs: 8000 });
+  return parseDdg(r.body.toString('utf8'));
+}
+
 async function webSearch(q) {
   const s = config.search;
   q = String(q || '').slice(0, 200).trim();
@@ -76,6 +98,7 @@ async function webSearch(q) {
     const j = await getJson(`https://api.search.brave.com/res/v1/web/search?count=8&q=${encodeURIComponent(q)}`, { 'x-subscription-token': s.apiKey, accept: 'application/json', 'accept-encoding': 'identity' });
     return ((j.web && j.web.results) || []).slice(0, 8).map((r) => ({ title: r.title, url: r.url, snippet: (r.description || '').replace(/<[^>]+>/g, '') }));
   }
+  if (s.provider === 'ddg' || !s.provider) return ddgSearch(q);
   if (s.provider === 'searxng' && s.baseUrl) {
     const u = new URL('/search', s.baseUrl); u.searchParams.set('q', q); u.searchParams.set('format', 'json');
     const r = await fetchBuffer(u.toString(), {}, { maxBytes: 1 << 20, timeoutMs: 8000 });
@@ -102,4 +125,4 @@ function syncPut(keyHash, bucket, buf) {
   fs.renameSync(tmp, p);
 }
 
-module.exports = { suggest, favicon, webSearch, syncGet, syncPut };
+module.exports = { suggest, favicon, webSearch, syncGet, syncPut, parseDdg };

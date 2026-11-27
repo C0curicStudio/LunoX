@@ -16,6 +16,7 @@ final class EdgeSelector: ObservableObject {
     @Published private(set) var results: [String: RouteResult] = [:]
     @Published private(set) var activeID = "direct"
     @Published private(set) var measuring = false
+    @Published private(set) var server: ServerConfig?
     let tunnel = LocalTunnel()
     var onChange: (() -> Void)?
     private let settings: Settings
@@ -38,6 +39,7 @@ final class EdgeSelector: ObservableObject {
         guard settings.gatewayConfigured, !measuring else { return }
         if !force, Date().timeIntervalSince(lastMeasure) < 240 { return }
         measuring = true; defer { measuring = false; lastMeasure = Date() }
+        await refreshServerConfig()
         let rs = routes
         var out: [String: RouteResult] = [:]
         await withTaskGroup(of: (String, RouteResult).self) { g in
@@ -54,6 +56,15 @@ final class EdgeSelector: ObservableObject {
         await activate(switchTo)
     }
 
+    /// The gateway tells us its Cloudflare address (and model status): nothing to type in the app.
+    func refreshServerConfig() async {
+        guard let c = await gateway.config() else { return }
+        server = c
+        if let e = c.edge, !e.isEmpty, (settings.prefs.edgeHost != e || settings.prefs.edgePort != 443) {
+            settings.prefs.edgeHost = e; settings.prefs.edgePort = 443
+        }
+    }
+
     private func activate(_ r: Route) async {
         let changed = activeID != r.id
         activeID = r.id
@@ -62,6 +73,7 @@ final class EdgeSelector: ObservableObject {
             tunnel.target = TunnelTarget(host: r.host, port: r.port, key: settings.gatewayKey, pinHost: "", pin: "")
             let before = tunnel.port
             let p = await tunnel.start()
+            tunnel.topUpWarm()
             if changed || p != before { onChange?() }
         } else if changed { onChange?() }
     }

@@ -147,6 +147,7 @@ struct SearchOverlay: View {
     }
     private func queryRemote(_ q: String) {
         task?.cancel()
+        if let u = URLResolver.resolve(q, engine: settings.engine), u.host != URLResolver.search(q, settings.engine)?.host { Prefetch.dns(u.host) }
         guard settings.prefs.searchSuggest, q.count >= 2, !tab.isPrivate else { remote = []; return }
         task = Task {
             try? await Task.sleep(nanoseconds: 220_000_000)

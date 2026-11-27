@@ -161,3 +161,28 @@ extension URL {
 extension String {
     var sha256Hex: String { SHA256.hash(data: Data(utf8)).map { String(format: "%02x", $0) }.joined() }
 }
+
+extension Color {
+    var hexString: String {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(self).getRed(&r, green: &g, blue: &b, alpha: &a)
+        return String(format: "#%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
+    }
+}
+
+/// Resolve a host's DNS name ahead of the navigation (the system DNS cache is shared with WebKit's network process).
+enum Prefetch {
+    private static let queue = DispatchQueue(label: "app.lunox.dns", qos: .utility, attributes: .concurrent)
+    private static var seen = Set<String>()
+    private static let lock = NSLock()
+    static func dns(_ host: String?) {
+        guard let host, !host.isEmpty else { return }
+        lock.lock(); let fresh = seen.insert(host).inserted; if seen.count > 500 { seen.removeAll() }; lock.unlock()
+        guard fresh else { return }
+        queue.async {
+            var res: UnsafeMutablePointer<addrinfo>?
+            var hints = addrinfo(); hints.ai_socktype = SOCK_STREAM
+            if getaddrinfo(host, "443", &hints, &res) == 0 { freeaddrinfo(res) }
+        }
+    }
+}

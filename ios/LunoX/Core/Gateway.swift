@@ -18,6 +18,11 @@ struct AgentPlan: Codable {
     var answer: String
     var actions: [AgentAction]
 }
+struct ServerConfig: Decodable {
+    struct LLM: Decodable { var configured: Bool; var provider: String; var baseUrl: String; var model: String }
+    var edge: String?
+    var llm: LLM
+}
 struct SearchHit: Codable, Identifiable, Hashable { var title: String; var url: String; var snippet: String; var id: String { url } }
 
 enum GatewayError: LocalizedError {
@@ -116,6 +121,22 @@ final class GatewayClient: NSObject, URLSessionDelegate {
         let t0 = Date()
         guard (try? await send(r)) != nil else { return nil }
         return Date().timeIntervalSince(t0) * 1000
+    }
+
+    // MARK: server self-configuration
+
+    func config() async -> ServerConfig? {
+        guard let r = try? await makeRequest("/v1/config", timeout: 6), let (d, _) = try? await send(r) else { return nil }
+        return try? JSONDecoder().decode(ServerConfig.self, from: d)
+    }
+
+    /// Model API settings are written to the server only; the key is never sent back to the phone.
+    func saveLLM(provider: String, baseUrl: String, model: String, apiKey: String?) async throws {
+        var body: [String: Any] = ["provider": provider, "baseUrl": baseUrl, "model": model]
+        if let apiKey, !apiKey.isEmpty { body["apiKey"] = apiKey }
+        let data = try JSONSerialization.data(withJSONObject: body)
+        let r = try await makeRequest("/v1/admin/llm", method: "PUT", body: data, timeout: 10)
+        _ = try await send(r)
     }
 
     // MARK: API

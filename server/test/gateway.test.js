@@ -56,3 +56,20 @@ test('IP literals are refused before connecting', () => {
   assert.doesNotThrow(() => sec.assertPublicHost('example.com'));
   assert.doesNotThrow(() => sec.assertPublicHost('8.8.8.8'));
 });
+
+test('DuckDuckGo result parser', () => {
+  const { parseDdg } = require('../src/misc');
+  const html = `<div class="result"><a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fa%3Fx%3D1&amp;rut=abc">Example &amp; <b>Co</b></a>
+    <a class="result__snippet" href="x">A <b>great</b> site</a></div>
+    <div class="result"><a class="result__a" href="https://b.org/">B</a><a class="result__snippet">snip B</a></div>`;
+  const r = parseDdg(html);
+  assert.equal(r.length, 2);
+  assert.deepEqual(r[0], { title: 'Example & Co', url: 'https://example.com/a?x=1', snippet: 'A great site' });
+  assert.equal(r[1].url, 'https://b.org/');
+});
+
+test('client ip is taken from CF-Connecting-IP only for loopback peers', () => {
+  const mk = (addr, h) => ({ socket: { remoteAddress: addr }, headers: h });
+  assert.equal(sec.clientIp(mk('127.0.0.1', { 'cf-connecting-ip': '9.9.9.9' })), '9.9.9.9');
+  assert.equal(sec.clientIp(mk('8.8.8.8', { 'cf-connecting-ip': '9.9.9.9' })), '8.8.8.8');
+});

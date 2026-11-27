@@ -11,6 +11,10 @@ const config = {
   // Comma separated. One key per device so a lost phone can be revoked alone.
   apiKeys: list('LUNOX_API_KEYS'),
   syncDir: env('LUNOX_SYNC_DIR', '/var/lib/lunox/sync'),
+  stateDir: env('LUNOX_STATE_DIR', '/var/lib/lunox'),
+  // plain-HTTP listener on loopback only, used by cloudflared (Cloudflare quick tunnel). 0 = off.
+  localHttpPort: int('LUNOX_LOCAL_HTTP_PORT', 0),
+  edgeMetrics: env('LUNOX_EDGE_METRICS', ''),
   // Upstream LLM (anthropic | openai-compatible)
   llm: {
     provider: env('LLM_PROVIDER', 'anthropic'),
@@ -20,7 +24,7 @@ const config = {
     maxTokens: int('LLM_MAX_TOKENS', 2048),
   },
   search: {
-    provider: env('SEARCH_PROVIDER', ''), // brave | searxng | ''
+    provider: env('SEARCH_PROVIDER', 'ddg'), // ddg (no key) | brave | searxng
     apiKey: env('SEARCH_API_KEY', ''),
     baseUrl: env('SEARXNG_URL', ''),
   },

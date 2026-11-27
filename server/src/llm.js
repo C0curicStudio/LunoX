@@ -1,7 +1,10 @@
 'use strict';
 const https = require('node:https');
 const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
 const { config } = require('./config');
+const { safeLookup, assertPublicHost } = require('./security');
 
 const SYSTEM_BASE =
   'You are LunoX, the assistant inside a mobile web browser. Reply in the user\'s language (default 简体中文). ' +
@@ -75,7 +78,8 @@ function run({ task, args, messages }, onText) {
   const r = buildRequest(task, args || {}, messages);
   const lib = r.url.protocol === 'https:' ? https : http;
   return new Promise((resolve, reject) => {
-    const req = lib.request(r.url, { method: 'POST', headers: r.headers, timeout: 60000 }, (up) => {
+    try { assertPublicHost(r.url.hostname); } catch (e) { return reject(Object.assign(new Error('LLM base URL points to a private address'), { status: 400 })); }
+    const req = lib.request(r.url, { method: 'POST', headers: r.headers, timeout: 60000, lookup: safeLookup }, (up) => {
       if (up.statusCode !== 200) {
         let b = ''; up.on('data', (c) => { if (b.length < 500) b += c; });
         up.on('end', () => reject(Object.assign(new Error(`upstream ${up.statusCode}`), { status: 502, detail: b })));
@@ -125,4 +129,37 @@ function parseActions(text) {
   return out;
 }
 
-module.exports = { run, parseActions, validMessages };
+// ---- model settings saved from the app (the key never leaves the server) ----
+const stateFile = () => path.join(config.stateDir, 'llm.json');
+function loadSaved() {
+  try { Object.assign(config.llm, JSON.parse(fs.readFileSync(stateFile(), 'utf8'))); } catch { /* none yet */ }
+}
+function save(patch) {
+  const next = {};
+  if (patch.provider !== undefined) {
+    if (!['anthropic', 'openai'].includes(patch.provider)) throw Object.assign(new Error('provider must be anthropic or openai'), { status: 400 });
+    next.provider = patch.provider;
+  }
+  if (patch.baseUrl !== undefined) {
+    let u; try { u = new URL(patch.baseUrl); } catch { throw Object.assign(new Error('bad base url'), { status: 400 }); }
+    if (u.protocol !== 'https:') throw Object.assign(new Error('base url must be https'), { status: 400 });
+    next.baseUrl = u.origin;
+  }
+  if (patch.model !== undefined) {
+    if (typeof patch.model !== 'string' || !/^[\w.:\/-]{1,100}$/.test(patch.model)) throw Object.assign(new Error('bad model'), { status: 400 });
+    next.model = patch.model;
+  }
+  if (patch.apiKey !== undefined) {
+    if (typeof patch.apiKey !== 'string' || patch.apiKey.length > 400 || /\s/.test(patch.apiKey)) throw Object.assign(new Error('bad api key'), { status: 400 });
+    next.apiKey = patch.apiKey;
+  }
+  Object.assign(config.llm, next);
+  fs.mkdirSync(config.stateDir, { recursive: true, mode: 0o700 });
+  const { provider, baseUrl, apiKey, model } = config.llm;
+  const tmp = `${stateFile()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify({ provider, baseUrl, apiKey, model }), { mode: 0o600 });
+  fs.renameSync(tmp, stateFile());
+}
+const publicInfo = () => ({ configured: !!config.llm.apiKey, provider: config.llm.provider, baseUrl: config.llm.baseUrl, model: config.llm.model });
+
+module.exports = { run, parseActions, validMessages, loadSaved, save, publicInfo };

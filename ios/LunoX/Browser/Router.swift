@@ -48,6 +48,26 @@ final class Router: ObservableObject {
 
     enum Route { case direct, proxy }
 
+    /// Instant answer from what we already know (no network). nil = not known yet.
+    func cachedRoute(for url: URL) -> Route? {
+        guard let host = url.host, url.scheme == "http" || url.scheme == "https" else { return .direct }
+        let dom = URLResolver.registrableDomain(host)
+        switch settings.prefs.routing {
+        case .direct: return .direct
+        case .proxy: return .proxy
+        case .auto: break
+        }
+        guard settings.gatewayConfigured else { return .direct }
+        if isForced(dom) || settings.site(host).forceProxy || proxied[dom] != nil { return .proxy }
+        if let v = verdicts[dom], Date().timeIntervalSince(v.at) < 600, v.ok { return .direct }
+        return nil
+    }
+
+    /// Probe without holding up the page load; `onProxy` fires only if the verdict is "use the server".
+    func resolveInBackground(_ url: URL, onProxy: @escaping () -> Void) {
+        Task { if await prepare(for: url) == .proxy { onProxy() } }
+    }
+
     /// Decide the route for `url` and make sure WebKit's proxy list reflects it before the request starts.
     func prepare(for url: URL) async -> Route {
         guard let host = url.host, url.scheme == "http" || url.scheme == "https" else { return .direct }

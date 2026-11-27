@@ -50,8 +50,10 @@ struct ThemedRoot: View {
         .preferredColorScheme(settings.prefs.appearance.forced)
         .tint(theme.accent)
         .animation(.easeInOut(duration: 0.35), value: theme)       // day/night + theme changes cross-fade
-        .onAppear { store.applyAppearance(settings.prefs.appearance) }
+        .onAppear { store.applyAppearance(settings.prefs.appearance); store.applyTheme(theme) }
         .onChange(of: settings.prefs.appearance) { _, a in store.applyAppearance(a) }
+        .onChange(of: theme) { _, t in store.applyTheme(t) }
+        .onChange(of: settings.prefs.autoDarkPages) { _, _ in store.applyTheme(theme) }
     }
 }
 

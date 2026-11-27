@@ -12,6 +12,8 @@ settings:
     DEVELOPMENT_TEAM: ""
     TARGETED_DEVICE_FAMILY: "1,2"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
+    LUNOX_KEY: ""
+    LUNOX_PIN: ""
 targets:
   LunoX:
     type: application
