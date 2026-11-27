@@ -59,7 +59,10 @@ final class ExtensionTests: XCTestCase {
 
 @MainActor
 final class ThemeTests: XCTestCase {
-    func testThemesHaveUniqueIDs() { XCTAssertEqual(Set(Theme.all.map(\.id)).count, Theme.all.count) }
+    func testThemesHaveUniqueIDs() { XCTAssertEqual(Set(ThemeFamily.all.map(\.id)).count, ThemeFamily.all.count) }
+    func testEveryFamilyHasLightAndDark() {
+        for f in ThemeFamily.all { XCTAssertEqual(f.light.scheme, .light, f.id); XCTAssertEqual(f.dark.scheme, .dark, f.id); XCTAssertEqual(f.resolve(.dark).id, f.id) }
+    }
     func testParseColor() {
         XCTAssertNotNil(Tab.parseColor("#fff")); XCTAssertNotNil(Tab.parseColor("rgb(10, 20, 30)"))
         XCTAssertNil(Tab.parseColor("rgba(0, 0, 0, 0)")); XCTAssertNil(Tab.parseColor("transparent"))

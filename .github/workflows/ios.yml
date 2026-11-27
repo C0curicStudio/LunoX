@@ -75,6 +75,8 @@ jobs:
           xcrun simctl list devices available | grep "$UDID"
           xcrun simctl boot "$UDID"; xcrun simctl bootstatus "$UDID" -b
       - name: Unit tests
+        id: tests
+        continue-on-error: true
         working-directory: ios
         run: |
           set -o pipefail
@@ -86,7 +88,11 @@ jobs:
         working-directory: ios
         run: |
           UDID=${{ steps.sim.outputs.udid }}
-          APP=$(find build-sim/Build/Products -name LunoX.app -path "*iphonesimulator*" | head -1)
+          APP=$(find build-sim/Build/Products -name LunoX.app -path "*iphonesimulator*" 2>/dev/null | head -1)
+          if [ -z "$APP" ]; then   # tests failed to build -> still build the app so we can look at it
+            xcodebuild build -project LunoX.xcodeproj -scheme LunoX -sdk iphonesimulator -destination "id=$UDID" -derivedDataPath build-sim CODE_SIGNING_ALLOWED=NO > build-sim.log 2>&1 || true
+            APP=$(find build-sim/Build/Products -name LunoX.app -path "*iphonesimulator*" | head -1)
+          fi
           xcrun simctl install "$UDID" "$APP"
           xcrun simctl ui "$UDID" appearance light || true
           defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false || true   # show the on-screen keyboard
@@ -124,3 +130,7 @@ jobs:
           path: |
             ios/shots
             ios/test.log
+            ios/build-sim.log
+      - name: Fail if unit tests failed
+        if: steps.tests.outcome == 'failure'
+        run: exit 1
