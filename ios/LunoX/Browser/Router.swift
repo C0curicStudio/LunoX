@@ -1,0 +1,145 @@
+import Foundation
+import Network
+import WebKit
+
+/// "Direct first, server proxy second."
+/// Before a host is loaded we probe it directly (short timeout). If it can't be reached the host's
+/// domain is added to the proxy match-list of every WKWebsiteDataStore, so WebKit tunnels it through
+/// the gateway's HTTPS CONNECT proxy. Everything else keeps going direct.
+@MainActor
+final class Router: ObservableObject {
+    private let settings: Settings
+    @Published private(set) var proxied: [String: Date] = [:]     // registrable domain -> since
+    private var verdicts: [String: (ok: Bool, at: Date)] = [:]
+    private var inflight: [String: Task<Bool, Never>] = [:]
+    private var stores: [WeakStore] = []
+    private let file = JSONFile<[String: Date]>("proxied.json")
+
+    private struct WeakStore { weak var s: WKWebsiteDataStore? }
+
+    /// Sites whose sub-resources live on other domains; proxying the main site must cover them too.
+    static let companions: [String: [String]] = [
+        "google.com": ["gstatic.com", "googleapis.com", "googleusercontent.com", "ggpht.com", "gvt1.com", "google.com.hk"],
+        "youtube.com": ["googlevideo.com", "ytimg.com", "ggpht.com", "gstatic.com", "googleapis.com", "youtu.be", "google.com"],
+        "facebook.com": ["fbcdn.net", "fb.com", "facebook.net"],
+        "instagram.com": ["cdninstagram.com", "fbcdn.net"],
+        "twitter.com": ["twimg.com", "t.co", "x.com"],
+        "x.com": ["twimg.com", "t.co", "twitter.com"],
+        "wikipedia.org": ["wikimedia.org", "wikimedia.org"],
+        "github.com": ["githubassets.com", "githubusercontent.com", "github.io"],
+        "reddit.com": ["redd.it", "redditstatic.com", "redditmedia.com"],
+        "telegram.org": ["t.me", "telegram.me", "cdn-telegram.org"],
+        "openai.com": ["oaistatic.com", "oaiusercontent.com", "chatgpt.com"],
+        "chatgpt.com": ["oaistatic.com", "oaiusercontent.com", "openai.com"],
+        "medium.com": ["medium.com", "cdn-images-1.medium.com"],
+        "netflix.com": ["nflxvideo.net", "nflximg.net", "nflxext.com"],
+    ]
+
+    init(settings: Settings) {
+        self.settings = settings
+        // Remember recently-blocked domains for 6h so cold starts don't wait for a probe.
+        let saved = file.load([:]).filter { Date().timeIntervalSince($0.value) < 6 * 3600 }
+        proxied = saved
+    }
+
+    // MARK: probe
+
+    enum Route { case direct, proxy }
+
+    /// Decide the route for `url` and make sure WebKit's proxy list reflects it before the request starts.
+    func prepare(for url: URL) async -> Route {
+        guard let host = url.host, url.scheme == "http" || url.scheme == "https" else { return .direct }
+        let dom = URLResolver.registrableDomain(host)
+        switch settings.prefs.routing {
+        case .direct: return .direct
+        case .proxy: apply(); return .proxy
+        case .auto: break
+        }
+        guard settings.gatewayConfigured else { return .direct }
+        if isForced(dom) || settings.site(host).forceProxy { apply(); return .proxy }
+        if proxied[dom] != nil { apply(); return .proxy }
+        if let v = verdicts[dom], Date().timeIntervalSince(v.at) < 600, v.ok { return .direct }
+
+        let ok: Bool
+        if let t = inflight[dom] { ok = await t.value } else {
+            let t = Task { await Router.probeDirect(host: host) }
+            inflight[dom] = t
+            ok = await t.value
+            inflight[dom] = nil
+        }
+        verdicts[dom] = (ok, Date())
+        if ok { return .direct }
+        markBlocked(dom)
+        return .proxy
+    }
+
+    func markBlocked(_ dom: String) {
+        proxied[dom] = Date()
+        for c in Router.companions[dom] ?? [] { proxied[URLResolver.registrableDomain(c)] = Date() }
+        file.save(proxied)
+        apply()
+    }
+
+    func reset() { proxied = [:]; verdicts = [:]; file.save([:]); apply() }
+
+    private func isForced(_ dom: String) -> Bool { settings.prefs.forcedProxyDomains.contains { URLResolver.registrableDomain($0) == dom } }
+
+    /// Direct connectivity probe. Any HTTP answer = reachable. Timeouts / resets / DNS / TLS failures = blocked.
+    nonisolated static func probeDirect(host: String) async -> Bool {
+        let c = URLSessionConfiguration.ephemeral
+        c.connectionProxyDictionary = [:]
+        c.timeoutIntervalForRequest = 3.5
+        c.timeoutIntervalForResource = 4.5
+        c.waitsForConnectivity = false
+        c.requestCachePolicy = .reloadIgnoringLocalCacheData
+        let s = URLSession(configuration: c)
+        defer { s.finishTasksAndInvalidate() }
+        guard let u = URL(string: "https://\(host)/") else { return true }
+        var r = URLRequest(url: u); r.httpMethod = "HEAD"
+        do { _ = try await s.data(for: r); return true }
+        catch let e as URLError {
+            switch e.code {
+            case .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff, .cancelled: return true  // offline ≠ blocked
+            case .timedOut, .cannotConnectToHost, .networkConnectionLost, .cannotFindHost, .dnsLookupFailed,
+                 .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateHasUnknownRoot, .cannotParseResponse:
+                return false
+            default: return true
+            }
+        } catch { return true }
+    }
+
+    // MARK: apply to WebKit
+
+    func register(_ store: WKWebsiteDataStore) {
+        stores.removeAll { $0.s == nil }
+        if !stores.contains(where: { $0.s === store }) { stores.append(WeakStore(s: store)) }
+        configure(store)
+    }
+
+    func apply() { stores.removeAll { $0.s == nil }; stores.forEach { if let s = $0.s { configure(s) } } }
+
+    private func configure(_ store: WKWebsiteDataStore) {
+        guard settings.gatewayConfigured, settings.prefs.routing != .direct,
+              let port = NWEndpoint.Port(rawValue: UInt16(clamping: settings.prefs.gatewayPort)) else {
+            store.proxyConfigurations = []; return
+        }
+        let mode = settings.prefs.routing
+        var domains = Set(proxied.keys)
+        settings.prefs.forcedProxyDomains.forEach { domains.insert(URLResolver.registrableDomain($0)) }
+        settings.sites.filter { $0.value.forceProxy }.keys.forEach { domains.insert($0) }
+        if mode == .auto && domains.isEmpty { store.proxyConfigurations = []; return }
+
+        let pin = settings.prefs.gatewayPin
+        let tls = NWProtocolTLS.Options()
+        sec_protocol_options_set_verify_block(tls.securityProtocolOptions, { _, secTrust, complete in
+            let trust = sec_trust_copy_ref(secTrust).takeRetainedValue()
+            complete(Pinning.verify(trust: trust, pin: pin))
+        }, DispatchQueue.global(qos: .userInitiated))
+
+        var cfg = ProxyConfiguration(httpCONNECTProxy: .hostPort(host: NWEndpoint.Host(settings.prefs.gatewayHost), port: port), tlsOptions: tls)
+        cfg.applyCredential(username: "lunox", password: settings.gatewayKey)
+        cfg.allowFailover = true        // if the gateway is down, fall back to direct instead of a dead page
+        if mode == .auto { cfg.matchDomains = Array(domains) }
+        store.proxyConfigurations = [cfg]
+    }
+}
