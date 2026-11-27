@@ -1,12 +1,28 @@
 import SwiftUI
 import UIKit
 
+/// Becomes first responder only once it is really in a window (asking earlier is silently ignored by iOS).
+final class FocusField: UITextField {
+    private var pending = true
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil, pending else { return }
+        pending = false
+        for delay in [0.05, 0.35] {   // second attempt covers the overlay's transition animation
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, self.window != nil, !self.isFirstResponder else { return }
+                self.becomeFirstResponder(); self.selectAll(nil)
+            }
+        }
+    }
+}
+
 struct OmniField: UIViewRepresentable {
     @Binding var text: String
     var placeholder: String
     var onSubmit: () -> Void
     func makeUIView(context: Context) -> UITextField {
-        let f = UITextField()
+        let f = FocusField()
         f.placeholder = placeholder
         f.keyboardType = .webSearch; f.returnKeyType = .go
         f.autocapitalizationType = .none; f.autocorrectionType = .no; f.spellCheckingType = .no
@@ -14,7 +30,6 @@ struct OmniField: UIViewRepresentable {
         f.font = UIFont.rounded(size: 17, weight: .medium)
         f.delegate = context.coordinator
         f.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
-        DispatchQueue.main.async { f.becomeFirstResponder(); f.selectAll(nil) }
         return f
     }
     func updateUIView(_ f: UITextField, context: Context) { if f.text != text { f.text = text } }
