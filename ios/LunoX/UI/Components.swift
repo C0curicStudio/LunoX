@@ -4,6 +4,7 @@ import SwiftUI
 struct FaviconTile: View {
     var image: UIImage?
     var fallback: String
+    var symbol: String? = nil
     var size: CGFloat = 28
     var radius: CGFloat? = nil
     @Environment(\.theme) private var theme
@@ -13,6 +14,8 @@ struct FaviconTile: View {
             RoundedRectangle(cornerRadius: r, style: .continuous).fill(image == nil ? theme.accent.opacity(0.16) : theme.surface)
             if let image {
                 Image(uiImage: image).resizable().scaledToFit().padding(size * 0.14).clipShape(RoundedRectangle(cornerRadius: r, style: .continuous))
+            } else if let symbol {
+                Image(systemName: symbol).font(.system(size: size * 0.44, weight: .medium)).foregroundStyle(theme.accent)
             } else {
                 Text(String(fallback.prefix(1)).uppercased()).font(.system(size: size * 0.46, weight: .semibold, design: .rounded)).foregroundStyle(theme.accent)
             }

@@ -115,17 +115,19 @@ jobs:
           shot 05-search safari light search
           shot 06-menu-light safari light menu
           shot 07-menu-dark safari dark menu
-          shot 08-settings safari light settings
-          shot 09-themes safari light themes
-          shot 10-themes-dark safari dark themes
-          shot 11-extensions safari light extensions
-          shot 12-ai safari light ai
+          shot 08-settings safari light menu -push settings
+          shot 09-themes safari light menu -push themes
+          shot 10-themes-dark safari dark menu -push themes
+          shot 11-extensions safari light menu -push extensions
+          shot 11b-network safari light menu -push network
+          shot 11c-aisettings safari dark menu -push aisettings
+          shot 12-ai safari light menu -push ai
           shot 13-private safari light private
           shot 14-find safari light find
           shot 15-fixedbar-light safari light fixedbar
           shot 16-fixedbar-dark safari dark fixedbar
           WAIT=14 shot 20-web-light safari light web
-          WAIT=14 shot 21-web-dark safari dark web
+          WAIT=22 shot 21-web-dark safari dark web
           WAIT=16 shot 22-web-menu safari light web2
           WAIT=14 shot 23-switcher-light safari light switcher
           WAIT=14 shot 24-switcher-dark mint dark switcher

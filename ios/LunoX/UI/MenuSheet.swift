@@ -1,7 +1,7 @@
 import SwiftUI
 import WebKit
 
-enum MenuRoute: Hashable { case bookmarks, history, downloads, offline, extensions, themes, settings, ai, reader }
+enum MenuRoute: Hashable { case bookmarks, history, downloads, offline, extensions, themes, settings, ai, reader, network, aiSettings }
 
 struct MenuSheet: View {
     @EnvironmentObject var store: BrowserStore
@@ -77,6 +77,8 @@ struct MenuSheet: View {
                 case .settings: SettingsView()
                 case .ai: if let t = tab { AIPanel(tab: t, initialQuestion: "", initialMode: .summarize) }
                 case .reader: if let t = tab { ReaderView(tab: t) }
+                case .network: NetworkSettings()
+                case .aiSettings: AISettings()
                 }
             }
         }
@@ -85,6 +87,15 @@ struct MenuSheet: View {
             if let r = initialRoute, path.isEmpty { path = [r] }
             withAnimation { shown = true }
         }
+        #if DEBUG
+        .task {
+            guard let name = Demo.value("push") else { return }
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            let map: [String: MenuRoute] = ["bookmarks": .bookmarks, "history": .history, "downloads": .downloads, "offline": .offline,
+                                            "extensions": .extensions, "themes": .themes, "settings": .settings, "ai": .ai, "reader": .reader, "network": .network, "aisettings": .aiSettings]
+            if let r = map[name] { path.append(r) }
+        }
+        #endif
     }
 
     @ViewBuilder private func cell(_ it: Item) -> some View {
