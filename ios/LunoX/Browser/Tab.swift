@@ -271,7 +271,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         case "blob": return (.allow, preferences)
         case "data": return (action.targetFrame?.isMainFrame == false ? .allow : .cancel, preferences)
         case "tel", "mailto", "sms", "facetime", "maps", "itms-apps", "itms-appss":
-            if action.navigationType == .linkActivated || Date().timeIntervalSince(lastTouch) < 2 { UIApplication.shared.open(url) }
+            if action.navigationType == .linkActivated || Date().timeIntervalSince(lastTouch) < 2 { UIApplication.shared.open(url, options: [:], completionHandler: nil) }
             return (.cancel, preferences)
         default: return (.cancel, preferences)      // javascript:, file:, unknown app schemes
         }

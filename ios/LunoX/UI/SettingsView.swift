@@ -11,7 +11,6 @@ struct SettingsView: View {
     @State private var link = ""
     @State private var forced = ""
     @State private var confirmClear = false
-    @State private var clearHistory = true, clearSites = true, clearOffline = false
 
     var body: some View {
         Form {

@@ -37,8 +37,10 @@ jobs:
             -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            2>&1 | tee build.log | grep -E "error:|warning: unre|BUILD (SUCCEEDED|FAILED)|\*\* BUILD" || true
-          test -d build/Build/Products/Release-iphoneos/LunoX.app
+            2>&1 | tee build.log
+          # fail loudly: never package a bundle from a failed build
+          grep -q "BUILD SUCCEEDED" build.log
+          test -f build/Build/Products/Release-iphoneos/LunoX.app/LunoX
 
       - name: Package IPA
         working-directory: ios
@@ -47,6 +49,11 @@ jobs:
           cp -R build/Build/Products/Release-iphoneos/LunoX.app Payload/
           zip -qry LunoX-unsigned.ipa Payload
           ls -lh LunoX-unsigned.ipa
+
+      - name: Show errors
+        if: failure()
+        working-directory: ios
+        run: grep -E 'error:' build.log | sort -u | head -60
 
       - uses: actions/upload-artifact@v4
         if: always()
