@@ -138,13 +138,16 @@ enum NativeAdapter {
 
       // pages without a viewport: make fluid ones fill the phone, fit genuinely desktop-only ones instead of scrolling sideways
       function fitViewport() {
-        if (!OPT.native || document.querySelector('meta[name=viewport]')) return;
-        var m = addMeta('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover');
+        var vp = document.querySelector('meta[name=viewport]');
+        // viewport-fit=cover makes iOS stop insetting the page below the status bar / home indicator: our toolbar already handles it
+        if (vp && /viewport-fit\s*=\s*cover/i.test(vp.content)) vp.content = vp.content.replace(/,?\s*viewport-fit\s*=\s*cover/ig, '');
+        if (!OPT.native || vp) return;
+        var m = addMeta('viewport', 'width=device-width, initial-scale=1');
         requestAnimationFrame(function () { requestAnimationFrame(function () {
           var de = document.documentElement;
           if (de.scrollWidth - innerWidth > innerWidth * 0.2) {
             var w = Math.min(de.scrollWidth, 2000);
-            m.content = 'width=' + w + ', initial-scale=' + (screen.width / w).toFixed(3) + ', viewport-fit=cover';
+            m.content = 'width=' + w + ', initial-scale=' + (screen.width / w).toFixed(3);
             state.desktop = true;
           }
         }); });

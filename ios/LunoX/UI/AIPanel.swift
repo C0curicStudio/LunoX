@@ -108,7 +108,7 @@ struct AIPanel: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if !settings.gatewayConfigured {
-                        Label("请先在 设置 › 网络与服务器 配置服务器", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                        Label("请先在 设置 › 网络与线路 完成服务器配对", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
                     }
                     if mode == .agent && !model.steps.isEmpty {
                         VStack(alignment: .leading, spacing: 6) { ForEach(model.steps, id: \.self) { Text($0).font(.footnote).foregroundStyle(theme.inkSoft) } }

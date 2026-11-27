@@ -10,6 +10,7 @@ struct MenuSheet: View {
     @Environment(\.dismiss) private var dismiss
     var onFind: () -> Void
     var initialRoute: MenuRoute? = nil
+    var onDeep: () -> Void = {}
     @State private var path: [MenuRoute] = []
     @State private var shown = false
 
@@ -83,6 +84,7 @@ struct MenuSheet: View {
             }
         }
         .presentationBackground(.regularMaterial)
+        .onChange(of: path) { _, p in if !p.isEmpty { onDeep() } }
         .onAppear {
             if let r = initialRoute, path.isEmpty { path = [r] }
             withAnimation { shown = true }
@@ -288,7 +290,8 @@ struct ThemesView: View {
                     Spacer()
                     if on { Image(systemName: "checkmark.circle.fill").foregroundStyle(t.accent).font(.system(size: 20)).transition(.scale.combined(with: .opacity)) }
                 }.padding(.horizontal, 14).padding(.top, 14).frame(maxHeight: .infinity, alignment: .top)
-                Text(f.name).font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundStyle(t.ink).padding(14)
+                Text(f.name).font(.system(size: 15, weight: .semibold, design: .rounded)).foregroundStyle(t.ink)
+                    .padding(.horizontal, 12).padding(.vertical, 6).background(.regularMaterial, in: Capsule()).padding(12)
             }
             .frame(height: 132).clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(on ? t.accent : .gray.opacity(0.2), lineWidth: on ? 2.5 : 0.5))

@@ -9,6 +9,7 @@ struct RootView: View {
     @State private var showMenu = false
     @State private var showSite = false
     @State private var showFind = false
+    @State private var menuDetent: PresentationDetent = .medium
     @State private var showHero = false
     @State private var menuRoute: MenuRoute?
     @Namespace private var ns
@@ -42,8 +43,9 @@ struct RootView: View {
             }
         }
         .onChange(of: store.searchRequest) { _, _ in openSearch() }
-        .sheet(isPresented: $showMenu, onDismiss: { menuRoute = nil }) {
-            MenuSheet(onFind: { withAnimation(.snappy) { showFind = true } }, initialRoute: menuRoute).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+        .sheet(isPresented: $showMenu, onDismiss: { menuRoute = nil; menuDetent = .medium }) {
+            MenuSheet(onFind: { withAnimation(.snappy) { showFind = true } }, initialRoute: menuRoute, onDeep: { menuDetent = .large })
+                .presentationDetents([.medium, .large], selection: $menuDetent).presentationDragIndicator(.visible)
         }
         #if DEBUG
         .task { await runDemo() }

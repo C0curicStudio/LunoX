@@ -11,7 +11,7 @@ struct FaviconTile: View {
     var body: some View {
         let r = radius ?? size * 0.28
         ZStack {
-            RoundedRectangle(cornerRadius: r, style: .continuous).fill(image == nil ? theme.accent.opacity(0.16) : theme.surface)
+            RoundedRectangle(cornerRadius: r, style: .continuous).fill(image == nil ? theme.accent.opacity(0.16) : Color(white: theme.scheme == .dark ? 0.93 : 1))
             if let image {
                 Image(uiImage: image).resizable().scaledToFit().padding(size * 0.14).clipShape(RoundedRectangle(cornerRadius: r, style: .continuous))
             } else if let symbol {
