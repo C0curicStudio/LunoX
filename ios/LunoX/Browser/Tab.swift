@@ -431,7 +431,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         if let top = UIApplication.shared.topVC { top.present(a, animated: true) } else { fallback() }
     }
 
-    func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin, initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType) async -> WKPermissionDecision {
+    func webView(_ webView: WKWebView, decideMediaCapturePermissionsFor origin: WKSecurityOrigin, initiatedBy frame: WKFrameInfo, type: WKMediaCaptureType) async -> WKPermissionDecision {
         let host = origin.host
         let wantsCam = type != .microphone, wantsMic = type != .camera
         let s = store.settings.site(host)

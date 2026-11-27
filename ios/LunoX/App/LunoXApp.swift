@@ -13,6 +13,7 @@ struct LunoXApp: App {
                 .environmentObject(store)
                 .environmentObject(store.settings)
                 .environmentObject(store.router)
+                .environmentObject(store.edge)
                 .environmentObject(store.offline)
                 .environmentObject(store.downloads)
                 .environmentObject(store.extensions)
@@ -23,6 +24,7 @@ struct LunoXApp: App {
                 }
                 .onChange(of: phase) { _, p in
                     if p == .background { store.persistNow(); if store.settings.prefs.appLock { lock.lock() } }
+                    if p == .active { Task { await store.edge.resume() } }
                     if p == .active, store.settings.prefs.appLock { lock.unlockIfNeeded() }
                 }
         }

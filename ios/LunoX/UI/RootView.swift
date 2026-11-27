@@ -9,6 +9,7 @@ struct RootView: View {
     @State private var showMenu = false
     @State private var showSite = false
     @State private var showFind = false
+    @State private var demoRoute: MenuRoute?
     @Namespace private var ns
 
     var body: some View {
@@ -39,8 +40,11 @@ struct RootView: View {
         }
         .animation(.spring(response: 0.42, dampingFraction: 0.88), value: store.showSwitcher)
         .sheet(isPresented: $showMenu) {
-            MenuSheet(onFind: { withAnimation(.snappy) { showFind = true } }).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
+            MenuSheet(onFind: { withAnimation(.snappy) { showFind = true } }, initialRoute: demoRoute).presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
         }
+        #if DEBUG
+        .task { await runDemo() }
+        #endif
         .sheet(isPresented: $showSite) {
             if let t = store.current { SiteInfoView(tab: t).presentationDetents([.medium]).presentationDragIndicator(.visible) }
         }
@@ -120,3 +124,40 @@ struct FindBar: View {
         .lunoGlass(Capsule()).padding(.horizontal, 16)
     }
 }
+
+#if DEBUG
+/// Screenshot automation: `simctl launch … -demo <screen> -theme <id>` (never compiled into Release/IPA).
+enum Demo {
+    static func value(_ k: String) -> String? {
+        let a = ProcessInfo.processInfo.arguments
+        guard let i = a.firstIndex(of: "-\(k)"), i + 1 < a.count else { return nil }
+        return a[i + 1]
+    }
+    @MainActor static func apply(to s: Settings) {
+        if let t = value("theme") { s.prefs.themeID = t }
+        if value("demo") != nil { s.prefs.restoreTabs = false; s.prefs.appLock = false }
+    }
+}
+extension RootView {
+    @MainActor func runDemo() async {
+        guard let d = Demo.value("demo") else { return }
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        switch d {
+        case "web":
+            store.open(Demo.value("url") ?? "https://en.wikipedia.org/wiki/Cloudflare")
+        case "web2":
+            store.open("https://example.com"); try? await Task.sleep(nanoseconds: 6_000_000_000); showMenu = true
+        case "search": searching = true
+        case "switcher":
+            store.newTab(url: URL(string: "https://example.com")); try? await Task.sleep(nanoseconds: 5_000_000_000)
+            store.newTab(); store.showSwitcher = true
+        case "private": store.newTab(isPrivate: true)
+        case "menu": showMenu = true
+        case "find": showFind = true
+        default:
+            if let r = ["bookmarks": MenuRoute.bookmarks, "history": .history, "downloads": .downloads, "offline": .offline,
+                        "extensions": .extensions, "themes": .themes, "settings": .settings, "ai": .ai][d] { demoRoute = r; showMenu = true }
+        }
+    }
+}
+#endif

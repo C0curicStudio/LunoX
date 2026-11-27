@@ -13,6 +13,7 @@ final class BrowserStore: ObservableObject {
     let settings: Settings
     let router: Router
     let gateway: GatewayClient
+    let edge: EdgeSelector
     let offline = OfflineCache()
     let downloads = DownloadManager()
     let extensions = ExtensionManager()
@@ -44,14 +45,27 @@ final class BrowserStore: ObservableObject {
         settings = s
         router = Router(settings: s)
         gateway = GatewayClient(settings: s)
+        edge = EdgeSelector(settings: s, gateway: gateway)
         bookmarks = bookmarksFile.load([])
         history = historyFile.load([])
         scriptHandler.store = self
+        router.edge = edge
+        router.gateway = gateway
+        edge.onChange = { [weak self] in self?.router.apply() }
         router.register(normalStore)
         router.register(privateStore)
         monitor.pathUpdateHandler = { [weak self] p in Task { @MainActor in self?.online = p.status == .satisfied } }
         monitor.start(queue: .global(qos: .utility))
+        #if DEBUG
+        Demo.apply(to: s)
+        #endif
         Task { await blocker.prepare() ; restore() }
+        Task { [weak self] in                                   // keep picking the fastest route into the server
+            while let self {
+                await self.edge.measure()
+                try? await Task.sleep(nanoseconds: 300_000_000_000)
+            }
+        }
     }
 
     var current: Tab? { tabs.first { $0.id == selectedID } }
@@ -150,6 +164,29 @@ final class BrowserStore: ObservableObject {
         bookmarksFile.save(bookmarks)
     }
     func saveBookmarks() { bookmarksFile.save(bookmarks) }
+
+    // MARK: local-first search suggestions (direct first, server only if that fails)
+
+    func suggest(_ q: String, engine: SearchEngine) async -> [String] {
+        if let local = await Self.localSuggest(q, key: engine.suggestKey), !local.isEmpty { return local }
+        guard settings.gatewayConfigured else { return [] }
+        return await gateway.suggest(q, engine: engine.suggestKey)
+    }
+
+    nonisolated static func localSuggest(_ q: String, key: String) async -> [String]? {
+        let enc = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? q
+        let urls = ["google": "https://suggestqueries.google.com/complete/search?client=firefox&q=\(enc)",
+                    "bing": "https://api.bing.com/osjson.aspx?query=\(enc)",
+                    "duckduckgo": "https://duckduckgo.com/ac/?type=list&q=\(enc)",
+                    "baidu": "https://suggestion.baidu.com/su?action=opensearch&wd=\(enc)"]
+        guard let u = urls[key].flatMap(URL.init(string:)) else { return nil }
+        let c = URLSessionConfiguration.ephemeral
+        c.connectionProxyDictionary = [:]; c.timeoutIntervalForRequest = 1.5; c.waitsForConnectivity = false
+        let sess = URLSession(configuration: c); defer { sess.finishTasksAndInvalidate() }
+        guard let (d, _) = try? await sess.data(from: u),
+              let j = try? JSONSerialization.jsonObject(with: d) as? [Any], j.count > 1, let arr = j[1] as? [String] else { return nil }
+        return Array(arr.prefix(8))
+    }
 
     // MARK: favicons
 

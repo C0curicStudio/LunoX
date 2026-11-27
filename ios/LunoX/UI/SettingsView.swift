@@ -5,6 +5,7 @@ struct SettingsView: View {
     @EnvironmentObject var store: BrowserStore
     @EnvironmentObject var router: Router
     @EnvironmentObject var offline: OfflineCache
+    @EnvironmentObject var edge: EdgeSelector
     @State private var key = ""
     @State private var testResult = ""
     @State private var testing = false
@@ -46,6 +47,20 @@ struct SettingsView: View {
                 TextField("强制走服务器的域名（逗号分隔）", text: $forced).textInputAutocapitalization(.never).autocorrectionDisabled()
                     .onAppear { forced = settings.prefs.forcedProxyDomains.joined(separator: ",") }
                     .onSubmit { settings.prefs.forcedProxyDomains = forced.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }; router.apply() }
+                TextField("Cloudflare 边缘域名（可选，例如 edge.example.com）", text: $settings.prefs.edgeHost).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                    .onSubmit { Task { await edge.measure(force: true) } }
+                ForEach(edge.routes) { r in
+                    HStack {
+                        Image(systemName: r.id == edge.activeID ? "checkmark.circle.fill" : "circle").foregroundStyle(r.id == edge.activeID ? Color.accentColor : .secondary)
+                        VStack(alignment: .leading, spacing: 2) { Text(r.name); Text("\(r.host):\(r.port)").font(.caption).foregroundStyle(.secondary) }
+                        Spacer()
+                        if let res = edge.results[r.id] {
+                            if let ms = res.ms { Text("\(Int(ms)) ms" + (res.colo.map { " · \($0)" } ?? "")).font(.footnote.monospacedDigit()).foregroundStyle(.secondary) }
+                            else { Text("不可用").font(.footnote).foregroundStyle(.red) }
+                        }
+                    }
+                }
+                Button(edge.measuring ? "测速中…" : "重新测速并自动选择最快线路") { commitKey(); Task { await edge.measure(force: true) } }.disabled(edge.measuring)
                 if !router.proxied.isEmpty {
                     DisclosureGroup("当前走服务器的站点（\(router.proxied.count)）") {
                         ForEach(router.proxied.keys.sorted(), id: \.self) { Text($0).font(.footnote) }

@@ -14,6 +14,8 @@ final class Router: ObservableObject {
     private var inflight: [String: Task<Bool, Never>] = [:]
     private var stores: [WeakStore] = []
     private let file = JSONFile<[String: Date]>("proxied.json")
+    var edge: EdgeSelector?
+    var gateway: GatewayClient?
 
     private struct WeakStore { weak var s: WKWebsiteDataStore? }
 
@@ -60,15 +62,19 @@ final class Router: ObservableObject {
         if proxied[dom] != nil { apply(); return .proxy }
         if let v = verdicts[dom], Date().timeIntervalSince(v.at) < 600, v.ok { return .direct }
 
-        let ok: Bool
-        if let t = inflight[dom] { ok = await t.value } else {
+        let r: Probe
+        if let t = inflight[dom] { r = await t.value } else {
             let t = Task { await Router.probeDirect(host: host) }
             inflight[dom] = t
-            ok = await t.value
+            r = await t.value
             inflight[dom] = nil
         }
-        verdicts[dom] = (ok, Date())
-        if ok { return .direct }
+        if r.ok, r.ms > 1200, let gw = gateway, let via = await gw.probeViaServer(url), via < r.ms * 0.6 {
+            // reachable but slow: the server (and its tunnel) gets there clearly faster -> use it
+            verdicts[dom] = (false, Date()); markBlocked(dom); return .proxy
+        }
+        verdicts[dom] = (r.ok, Date())
+        if r.ok { return .direct }
         markBlocked(dom)
         return .proxy
     }
@@ -85,7 +91,8 @@ final class Router: ObservableObject {
     private func isForced(_ dom: String) -> Bool { settings.prefs.forcedProxyDomains.contains { URLResolver.registrableDomain($0) == dom } }
 
     /// Direct connectivity probe. Any HTTP answer = reachable. Timeouts / resets / DNS / TLS failures = blocked.
-    nonisolated static func probeDirect(host: String) async -> Bool {
+    struct Probe { var ok: Bool; var ms: Double }
+    nonisolated static func probeDirect(host: String) async -> Probe {
         let c = URLSessionConfiguration.ephemeral
         c.connectionProxyDictionary = [:]
         c.timeoutIntervalForRequest = 3.5
@@ -94,18 +101,20 @@ final class Router: ObservableObject {
         c.requestCachePolicy = .reloadIgnoringLocalCacheData
         let s = URLSession(configuration: c)
         defer { s.finishTasksAndInvalidate() }
-        guard let u = URL(string: "https://\(host)/") else { return true }
+        guard let u = URL(string: "https://\(host)/") else { return Probe(ok: true, ms: 0) }
         var r = URLRequest(url: u); r.httpMethod = "HEAD"
-        do { _ = try await s.data(for: r); return true }
+        let t0 = Date()
+        let ms = { Date().timeIntervalSince(t0) * 1000 }
+        do { _ = try await s.data(for: r); return Probe(ok: true, ms: ms()) }
         catch let e as URLError {
             switch e.code {
-            case .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff, .cancelled: return true  // offline ≠ blocked
+            case .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff, .cancelled: return Probe(ok: true, ms: 0)  // offline ≠ blocked
             case .timedOut, .cannotConnectToHost, .networkConnectionLost, .cannotFindHost, .dnsLookupFailed,
                  .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateHasUnknownRoot, .cannotParseResponse:
-                return false
-            default: return true
+                return Probe(ok: false, ms: ms())
+            default: return Probe(ok: true, ms: ms())
             }
-        } catch { return true }
+        } catch { return Probe(ok: true, ms: 0) }
     }
 
     // MARK: apply to WebKit
@@ -129,6 +138,15 @@ final class Router: ObservableObject {
         settings.sites.filter { $0.value.forceProxy }.keys.forEach { domains.insert($0) }
         if mode == .auto && domains.isEmpty { store.proxyConfigurations = []; return }
 
+        if mode == .proxy || !domains.isEmpty, let e = edge, e.usesTunnel {
+            // Fastest route is Cloudflare's edge: talk to the in-app loopback tunnel (WebSocket to the edge).
+            var local = ProxyConfiguration(httpCONNECTProxy: .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: e.tunnel.port) ?? port), tlsOptions: nil)
+            local.applyCredential(username: "lunox", password: e.tunnel.token)
+            local.allowFailover = true
+            if mode == .auto { local.matchDomains = Array(domains) }
+            store.proxyConfigurations = [local]
+            return
+        }
         let pin = settings.prefs.gatewayPin
         let tls = NWProtocolTLS.Options()
         sec_protocol_options_set_verify_block(tls.securityProtocolOptions, { _, secTrust, complete in

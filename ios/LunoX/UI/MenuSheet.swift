@@ -9,6 +9,7 @@ struct MenuSheet: View {
     @Environment(\.theme) private var theme
     @Environment(\.dismiss) private var dismiss
     var onFind: () -> Void
+    var initialRoute: MenuRoute? = nil
     @State private var path: [MenuRoute] = []
 
     private var tab: Tab? { store.current }
@@ -70,6 +71,7 @@ struct MenuSheet: View {
             }
         }
         .presentationBackground(.regularMaterial)
+        .onAppear { if let r = initialRoute, path.isEmpty { path = [r] } }
     }
 
     private func printPage() {

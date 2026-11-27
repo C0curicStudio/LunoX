@@ -132,11 +132,11 @@ struct SearchOverlay: View {
     }
     private func queryRemote(_ q: String) {
         task?.cancel()
-        guard settings.prefs.searchSuggest, settings.gatewayConfigured, q.count >= 2, !tab.isPrivate else { remote = []; return }
+        guard settings.prefs.searchSuggest, q.count >= 2, !tab.isPrivate else { remote = []; return }
         task = Task {
             try? await Task.sleep(nanoseconds: 220_000_000)
             guard !Task.isCancelled else { return }
-            let r = await store.gateway.suggest(q, engine: settings.engine.suggestKey)
+            let r = await store.suggest(q, engine: settings.engine)
             if !Task.isCancelled { remote = r }
         }
     }

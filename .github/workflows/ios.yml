@@ -1,4 +1,4 @@
-name: iOS IPA
+name: iOS
 
 on:
   push:
@@ -7,41 +7,30 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  ipa:
+    name: Build IPA
     runs-on: macos-26
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
-
       - name: Select newest Xcode
         run: |
-          ls /Applications | grep -i '^Xcode' || true
           X=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
           if [ -n "$X" ]; then sudo xcode-select -s "$X/Contents/Developer"; fi
           xcodebuild -version
-          xcrun --sdk iphoneos --show-sdk-version
-
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
+      - run: brew install xcodegen
       - name: Generate project
         working-directory: ios
         run: xcodegen generate
-
-      - name: Build (unsigned, device SDK)
+      - name: Build (unsigned, device SDK, Release)
         working-directory: ios
         run: |
           set -o pipefail
-          xcodebuild build \
-            -project LunoX.xcodeproj -scheme LunoX \
-            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            2>&1 | tee build.log
-          # fail loudly: never package a bundle from a failed build
+          xcodebuild build -project LunoX.xcodeproj -scheme LunoX -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" 2>&1 | tee build.log
           grep -q "BUILD SUCCEEDED" build.log
           test -f build/Build/Products/Release-iphoneos/LunoX.app/LunoX
-
       - name: Package IPA
         working-directory: ios
         run: |
@@ -49,12 +38,12 @@ jobs:
           cp -R build/Build/Products/Release-iphoneos/LunoX.app Payload/
           zip -qry LunoX-unsigned.ipa Payload
           ls -lh LunoX-unsigned.ipa
-
-      - name: Show errors
-        if: failure()
+      - name: Show errors / warnings
+        if: always()
         working-directory: ios
-        run: grep -E 'error:' build.log | sort -u | head -60
-
+        run: |
+          grep -E 'error:' build.log | sort -u | head -60 || true
+          echo "--- warnings"; grep -E 'warning:' build.log | grep -v appintents | sort -u | head -30 || true
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -62,3 +51,73 @@ jobs:
           path: |
             ios/LunoX-unsigned.ipa
             ios/build.log
+
+  test-and-screens:
+    name: Unit tests + simulator screenshots
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select newest Xcode
+        run: |
+          X=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$X" ]; then sudo xcode-select -s "$X/Contents/Developer"; fi
+      - run: brew install xcodegen
+      - name: Generate project
+        working-directory: ios
+        run: xcodegen generate
+      - name: Pick an iPhone simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available | grep -E "iPhone [0-9]+ Pro \(" | grep -v Max | tail -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
+          [ -n "$UDID" ] || UDID=$(xcrun simctl list devices available | grep -E "iPhone" | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices available | grep "$UDID"
+          xcrun simctl boot "$UDID"; xcrun simctl bootstatus "$UDID" -b
+      - name: Unit tests
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild test -project LunoX.xcodeproj -scheme LunoX -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build-sim CODE_SIGNING_ALLOWED=NO 2>&1 | tee test.log | grep -E "Test (Case|Suite).*(passed|failed)|error:|TEST (SUCCEEDED|FAILED)|Executed" || true
+          grep -q "TEST SUCCEEDED" test.log
+      - name: Screenshots of every screen
+        if: always()
+        working-directory: ios
+        run: |
+          UDID=${{ steps.sim.outputs.udid }}
+          APP=$(find build-sim/Build/Products -name LunoX.app -path "*iphonesimulator*" | head -1)
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl ui "$UDID" appearance light || true
+          mkdir -p shots
+          shot() { # name, theme, extra args...
+            n=$1; t=$2; shift 2
+            xcrun simctl launch --terminate-running-process "$UDID" app.lunox.browser -demo "$@" -theme "$t" >/dev/null
+            sleep ${WAIT:-7}
+            xcrun simctl io "$UDID" screenshot "shots/$n.png" >/dev/null 2>&1 || true
+          }
+          shot 01-newtab-mist mist newtab
+          shot 02-newtab-ink ink newtab
+          shot 03-newtab-aurora aurora newtab
+          shot 04-search mist search
+          shot 05-menu mist menu
+          shot 06-menu-ink ink menu
+          shot 07-settings mist settings
+          shot 08-themes mist themes
+          shot 09-extensions mist extensions
+          shot 10-bookmarks mist bookmarks
+          shot 11-ai mist ai
+          shot 12-private mist private
+          shot 13-find mist find
+          WAIT=14 shot 20-web-wikipedia mist web
+          WAIT=14 shot 21-web-ink ink web
+          WAIT=16 shot 22-web-menu mist web2
+          WAIT=14 shot 23-switcher mist switcher
+          ls -la shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: simulator-screenshots
+          path: |
+            ios/shots
+            ios/test.log

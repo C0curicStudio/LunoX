@@ -34,13 +34,17 @@ function isPortAllowed(port) {
   return !SENSITIVE_PORTS.has(port);
 }
 
+const dnsCache = new Map();
+
 /** dns.lookup replacement that refuses internal addresses (checked at connect time => no DNS rebinding). */
 function safeLookup(hostname, options, cb) {
   if (typeof options === 'function') { cb = options; options = {}; }
   const opts = typeof options === 'number' ? { family: options } : { ...options };
   const wantAll = !!opts.all;
   opts.all = true;
-  dns.lookup(hostname, opts, (err, addrs) => {
+  const ck = `${hostname}|${opts.family || 0}`;
+  const hit = dnsCache.get(ck);
+  const done = (err, addrs) => {
     if (err) return cb(err);
     const ok = addrs.filter((a) => !isBlockedIp(a.address));
     if (ok.length === 0 || ok.length !== addrs.length) {
@@ -50,6 +54,14 @@ function safeLookup(hostname, options, cb) {
     }
     if (wantAll) return cb(null, ok);
     return cb(null, ok[0].address, ok[0].family);
+  };
+  if (hit && hit.exp > Date.now()) return process.nextTick(done, null, hit.addrs);
+  dns.lookup(hostname, opts, (err, addrs) => {
+    if (!err) {                                  // 60s cache: shaves a DNS round-trip off every new connection
+      if (dnsCache.size > 2000) dnsCache.delete(dnsCache.keys().next().value);
+      dnsCache.set(ck, { addrs, exp: Date.now() + 60000 });
+    }
+    done(err, addrs);
   });
 }
 

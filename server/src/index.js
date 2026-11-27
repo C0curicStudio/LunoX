@@ -5,6 +5,7 @@ const { config } = require('./config');
 const sec = require('./security');
 const { fetchUrl } = require('./fetcher');
 const { handleConnect, stats } = require('./proxy');
+const { handleUpgrade } = require('./tunnel');
 const llm = require('./llm');
 const misc = require('./misc');
 
@@ -62,6 +63,13 @@ async function route(req, res) {
     r.stream.on('error', () => res.destroy());
     r.stream.pipe(res);
     return undefined;
+  }
+
+  if (req.method === 'GET' && p === '/v1/probe') {   // how fast is a site from the server's network? (headers only)
+    const t0 = Date.now();
+    const r = await fetchUrl(url.searchParams.get('url') || '', {}, { maxBytes: 1 << 20, timeoutMs: 6000 });
+    r.stream.on('error', () => {}); r.stream.destroy();
+    return send(res, 200, { status: r.status, ms: Date.now() - t0 });
   }
 
   if (req.method === 'GET' && p === '/v1/suggest') {
@@ -134,6 +142,7 @@ function createServer() {
     });
   });
   srv.on('connect', handleConnect);
+  srv.on('upgrade', handleUpgrade);
   srv.on('clientError', (_e, s) => s.destroy());
   return srv;
 }

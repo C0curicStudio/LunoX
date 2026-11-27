@@ -28,6 +28,8 @@ struct Prefs: Codable, Equatable {
     var gatewayHost = "186.244.245.83"
     var gatewayPort = 8443
     var gatewayPin = ""
+    var edgeHost = ""
+    var edgePort = 8443
     var forcedProxyDomains: [String] = []
 }
 
@@ -71,6 +73,7 @@ final class Settings: ObservableObject {
         prefs.gatewayHost = host
         prefs.gatewayPort = Int(q("port") ?? "") ?? 8443
         prefs.gatewayPin = Pinning.normalize(pin)
+        if let e = q("edge"), e.range(of: #"^[A-Za-z0-9.\-]{1,253}$"#, options: .regularExpression) != nil { prefs.edgeHost = e; prefs.edgePort = Int(q("edgePort") ?? "") ?? 8443 }
         gatewayKey = key
         return true
     }

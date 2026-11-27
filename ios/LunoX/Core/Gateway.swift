@@ -45,24 +45,30 @@ final class GatewayClient: NSObject, URLSessionDelegate {
     @MainActor init(settings: Settings) { self.settings = settings }
 
     // Snapshot of config (read on main, used anywhere)
-    private struct Cfg { var host: String; var port: Int; var key: String; var pin: String }
+    private struct Cfg { var host: String; var port: Int; var key: String; var pin: String; var pinned: Bool }
+    /// Set by EdgeSelector when the Cloudflare route is the fastest; nil = talk to the server directly (certificate-pinned).
+    @MainActor var endpoint: (host: String, port: Int)?
     @MainActor private func cfg() throws -> Cfg {
         guard settings.gatewayConfigured else { throw GatewayError.notConfigured }
-        return Cfg(host: settings.prefs.gatewayHost, port: settings.prefs.gatewayPort, key: settings.gatewayKey, pin: settings.prefs.gatewayPin)
+        let p = settings.prefs
+        if let e = endpoint { return Cfg(host: e.host, port: e.port, key: settings.gatewayKey, pin: p.gatewayPin, pinned: false) }
+        return Cfg(host: p.gatewayHost, port: p.gatewayPort, key: settings.gatewayKey, pin: p.gatewayPin, pinned: true)
     }
     private var pin: String = ""
+    private var pinHost: String = ""
 
     func urlSession(_ s: URLSession, didReceive ch: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         guard ch.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust, let trust = ch.protectionSpace.serverTrust else {
             return completionHandler(.performDefaultHandling, nil)
         }
+        guard !pinHost.isEmpty, ch.protectionSpace.host == pinHost else { return completionHandler(.performDefaultHandling, nil) }  // Cloudflare edge: normal validation
         Pinning.verify(trust: trust, pin: pin) ? completionHandler(.useCredential, URLCredential(trust: trust)) : completionHandler(.cancelAuthenticationChallenge, nil)
     }
 
     @MainActor
     private func makeRequest(_ path: String, _ query: [String: String] = [:], method: String = "GET", body: Data? = nil, timeout: TimeInterval = 20) throws -> URLRequest {
         let c = try cfg()
-        pin = c.pin
+        pin = c.pin; pinHost = c.pinned ? c.host : ""
         var comps = URLComponents()
         comps.scheme = "https"; comps.host = c.host; comps.port = c.port; comps.path = path
         if !query.isEmpty { comps.queryItems = query.map { URLQueryItem(name: $0.key, value: $0.value) } }
@@ -79,6 +85,37 @@ final class GatewayClient: NSObject, URLSessionDelegate {
         guard let h = resp as? HTTPURLResponse else { throw GatewayError.bad }
         guard h.statusCode == 200 else { throw GatewayError.http(h.statusCode) }
         return (d, h)
+    }
+
+    // MARK: route measurement
+
+    /// Round-trip to /v1/health on a fresh connection (TLS + request, then a warm request). Returns the Cloudflare edge city if any.
+    func ping(host: String, port: Int, pinned: Bool) async -> RouteResult {
+        let (key, pin) = await MainActor.run { (settings.gatewayKey, settings.prefs.gatewayPin) }
+        let d = PinDelegate(pinHost: pinned ? host : "", pin: pin)
+        let c = URLSessionConfiguration.ephemeral
+        c.connectionProxyDictionary = [:]; c.timeoutIntervalForRequest = 5; c.waitsForConnectivity = false
+        let s = URLSession(configuration: c, delegate: d, delegateQueue: nil)
+        defer { s.finishTasksAndInvalidate() }
+        var comps = URLComponents(); comps.scheme = "https"; comps.host = host; comps.port = port; comps.path = "/v1/health"
+        guard let url = comps.url else { return RouteResult(ms: nil, colo: nil) }
+        var r = URLRequest(url: url); r.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        var total = 0.0, colo: String?
+        for _ in 0..<2 {
+            let t0 = Date()
+            guard let (_, resp) = try? await s.data(for: r), let h = resp as? HTTPURLResponse, h.statusCode == 200 else { return RouteResult(ms: nil, colo: nil) }
+            total += Date().timeIntervalSince(t0) * 1000
+            if let ray = h.value(forHTTPHeaderField: "cf-ray"), let c = ray.split(separator: "-").last { colo = String(c) }
+        }
+        return RouteResult(ms: total, colo: colo)
+    }
+
+    /// How long the SERVER needs to reach a site (+ our round trip to the server). Used to compare against a slow direct connection.
+    func probeViaServer(_ url: URL) async -> Double? {
+        guard let r = try? await makeRequest("/v1/probe", ["url": url.absoluteString], timeout: 8) else { return nil }
+        let t0 = Date()
+        guard (try? await send(r)) != nil else { return nil }
+        return Date().timeIntervalSince(t0) * 1000
     }
 
     // MARK: API
@@ -179,5 +216,18 @@ final class GatewayClient: NSObject, URLSessionDelegate {
         if h.statusCode == 404 { return nil }
         guard h.statusCode == 200 else { throw GatewayError.http(h.statusCode) }
         return try AES.GCM.open(AES.GCM.SealedBox(combined: d), using: syncKey())
+    }
+}
+
+
+final class PinDelegate: NSObject, URLSessionDelegate {
+    let pinHost: String, pin: String
+    init(pinHost: String, pin: String) { self.pinHost = pinHost; self.pin = pin }
+    func urlSession(_ s: URLSession, didReceive ch: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        guard ch.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust, let trust = ch.protectionSpace.serverTrust else {
+            return completionHandler(.performDefaultHandling, nil)
+        }
+        guard !pinHost.isEmpty, ch.protectionSpace.host == pinHost else { return completionHandler(.performDefaultHandling, nil) }
+        Pinning.verify(trust: trust, pin: pin) ? completionHandler(.useCredential, URLCredential(trust: trust)) : completionHandler(.cancelAuthenticationChallenge, nil)
     }
 }
