@@ -32,6 +32,7 @@ final class PinningTests: XCTestCase {
     }
 }
 
+@MainActor
 final class ExtensionTests: XCTestCase {
     func testUserScriptHeader() {
         let src = """
@@ -56,6 +57,7 @@ final class ExtensionTests: XCTestCase {
     }
 }
 
+@MainActor
 final class ThemeTests: XCTestCase {
     func testThemesHaveUniqueIDs() { XCTAssertEqual(Set(Theme.all.map(\.id)).count, Theme.all.count) }
     func testParseColor() {
