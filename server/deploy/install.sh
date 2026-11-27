@@ -13,8 +13,11 @@ IP="${1:-}"; PORT="${2:-8443}"
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo "==> 1/6 checking port $PORT (read-only)"
-if ss -ltnH "sport = :$PORT" 2>/dev/null | grep -q .; then
-  echo "!! TCP port $PORT is already in use. Pick another: sudo bash install.sh $IP 9443"; ss -ltnp "sport = :$PORT"; exit 1
+UPGRADE=0
+if systemctl is-active --quiet lunox-gateway.service 2>/dev/null; then
+  UPGRADE=1; echo "lunox-gateway is already running -> upgrading in place (config, key and certificate are kept)"
+elif ss -ltnH "sport = :$PORT" 2>/dev/null | grep -q .; then
+  echo "!! TCP port $PORT is already in use by something else. Pick another: sudo bash install.sh $IP 9443"; ss -ltnp "sport = :$PORT"; exit 1
 fi
 
 echo "==> 2/6 node runtime"
@@ -105,7 +108,8 @@ CapabilityBoundingSet=
 WantedBy=multi-user.target
 UNIT
 systemctl daemon-reload
-systemctl enable --now lunox-gateway.service
+systemctl enable lunox-gateway.service >/dev/null 2>&1
+systemctl restart lunox-gateway.service
 sleep 1
 systemctl --no-pager --lines=5 status lunox-gateway.service || true
 
