@@ -11,7 +11,7 @@ final class Router: ObservableObject {
     private let settings: Settings
     @Published private(set) var proxied: [String: Date] = [:]     // registrable domain -> since
     private var verdicts: [String: (ok: Bool, at: Date)] = [:]
-    private var inflight: [String: Task<Bool, Never>] = [:]
+    private var inflight: [String: Task<Probe, Never>] = [:]
     private var stores: [WeakStore] = []
     private let file = JSONFile<[String: Date]>("proxied.json")
     var edge: EdgeSelector?
