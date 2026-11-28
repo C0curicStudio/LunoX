@@ -255,14 +255,14 @@ final class Router: ObservableObject {
 
     private func configure(_ store: WKWebsiteDataStore) {
         guard settings.prefs.routing != .direct, (settings.gatewayConfigured || hy2?.running == true) else { store.proxyConfigurations = []; return }
-        let mode = settings.prefs.routing
+        let routing = settings.prefs.routing
         var domains = Set(proxied.keys)
         for g in Router.groups where mode(of: g) == .proxy { domains.formUnion(self.domains(of: g).map { URLResolver.registrableDomain($0) }) }
         domains = domains.filter { policyMode($0, host: $0) != .direct }                       // a direct group wins over an old "blocked" verdict
         settings.prefs.forcedProxyDomains.forEach { domains.insert(URLResolver.registrableDomain($0)) }
         settings.sites.filter { $0.value.forceProxy }.keys.forEach { domains.insert($0) }
-        if mode == .auto && domains.isEmpty { store.proxyConfigurations = []; return }
-        let match: [String]? = mode == .auto ? Array(domains) : nil
+        if routing == .auto && domains.isEmpty { store.proxyConfigurations = []; return }
+        let match: [String]? = routing == .auto ? Array(domains) : nil
         if settings.prefs.useHy2, let h = makeHy2Config(matchDomains: match) { store.proxyConfigurations = [h]; return }
         if let cfg = makeConfig(loopback: edge?.usesTunnel == true, matchDomains: match) { store.proxyConfigurations = [cfg] }
         else { store.proxyConfigurations = [] }
