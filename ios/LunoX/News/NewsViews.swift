@@ -8,6 +8,7 @@ import AVKit
 final class ImageStore {
     static let shared = ImageStore()
     var gateway: GatewayClient?
+    var router: Router?
     private let mem = NSCache<NSString, UIImage>()
     private let dir = Paths.dir("NewsImages", excludeFromBackup: true)
     private var inflight: [String: Task<UIImage?, Never>] = [:]
@@ -28,10 +29,14 @@ final class ImageStore {
         let file = dir.appendingPathComponent(key)
         var data = try? Data(contentsOf: file)
         if data == nil {
+            // blocked foreign sites (YouTube thumbnails …) come through the Hysteria2 tunnel first
+            if let g = gateway, let r = router, await MainActor.run(body: { r.cachedRoute(for: url) }) == .proxy, let d = await g.tunnelData(url, timeout: 10) { data = d }
+            if data == nil {
             let c = URLSessionConfiguration.ephemeral; c.connectionProxyDictionary = [:]; c.timeoutIntervalForRequest = 6
             let sess = URLSession(configuration: c); defer { sess.finishTasksAndInvalidate() }
             if let (d, r) = try? await sess.data(from: url), (r as? HTTPURLResponse)?.statusCode == 200 { data = d }
             else if let g = gateway, let (d, _, _) = try? await g.fetch(url, maxBytes: 5_000_000) { data = d }
+            }
             if let d = data { DispatchQueue.global(qos: .utility).async { try? d.write(to: file) } }
         }
         guard let d = data, let img = UIImage(data: d) else { return nil }

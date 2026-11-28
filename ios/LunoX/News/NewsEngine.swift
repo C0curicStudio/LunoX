@@ -252,6 +252,11 @@ final class NewsEngine {
 
     /// Direct first; if it has not answered within 2.5s (or the domain is known to be blocked) the server relay is used too. First good answer wins.
     func data(_ url: URL, userAgent: String? = nil, headers: [String: String] = [:], maxBytes: Int = 3_000_000) async -> Data? {
+        // Blocked foreign sites (YouTube …): go straight through the Hysteria2 tunnel, no direct attempt to wait out.
+        if router.cachedRoute(for: url) == .proxy {
+            var h = headers; if let userAgent { h["User-Agent"] = userAgent }
+            if let d = await gateway.tunnelData(url, headers: h, timeout: 12) { return d }
+        }
         let paired = settings.gatewayConfigured
         if paired, router.cachedRoute(for: url) == .proxy { return (try? await gateway.fetch(url, maxBytes: maxBytes))?.0 }
         return await withTaskGroup(of: Data?.self) { g in

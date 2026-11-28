@@ -65,6 +65,7 @@ final class BrowserStore: ObservableObject {
         translator = Translator(gateway: gateway)
         news = NewsStore(gateway: gateway, settings: s, router: router)
         ImageStore.shared.gateway = gateway
+        ImageStore.shared.router = router
         bookmarks = bookmarksFile.load([])
         history = historyFile.load([])
         scriptHandler.store = self

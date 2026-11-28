@@ -89,6 +89,17 @@ final class GatewayClient: NSObject, URLSessionDelegate {
         }
     }
 
+    /// Fetches a public URL straight through the Hysteria2 tunnel (the route for sites the policy groups mark as blocked).
+    /// nil when the tunnel is not running or the request failed, so the caller can fall back.
+    func tunnelData(_ url: URL, headers: [String: String] = [:], timeout: TimeInterval = 12) async -> Data? {
+        guard let t = await tunnelSession() else { return nil }
+        var r = URLRequest(url: url, timeoutInterval: timeout)
+        r.setValue(SafariUA.mobile, forHTTPHeaderField: "User-Agent")
+        for (k, v) in headers { r.setValue(v, forHTTPHeaderField: k) }
+        guard let (d, resp) = try? await t.data(for: r), (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return d
+    }
+
     /// For the diagnostics page: /v1/health through the tunnel.
     func healthViaTunnel() async -> (ms: Int?, error: String?) {
         guard let r = try? await makeRequest("/v1/health", timeout: 8), let t = await tunnelSession() else { return (nil, "Hysteria2 未运行") }
