@@ -11,6 +11,8 @@ enum LanguageUtil {
     static func same(_ a: String, _ b: String) -> Bool { family(a) == family(b) }
     static func name(_ code: String) -> String { supported.first { $0.code == code }?.name ?? Locale.current.localizedString(forLanguageCode: code) ?? code }
 
+    static func target(_ pref: String) -> String { pref.isEmpty ? systemTarget() : pref }
+
     /// Default translation target = the phone's first preferred language.
     static func systemTarget() -> String {
         let l = Locale.preferredLanguages.first ?? "zh-Hans"
@@ -40,12 +42,15 @@ final class TranslationCoordinator: ObservableObject {
         var done: ([String]?) -> Void
     }
     @Published var job: Job?
+    var lastError = ""
 
     func run(texts: [String], source: String?, target: String) async -> [String]? {
         await withCheckedContinuation { (c: CheckedContinuation<[String]?, Never>) in
             let once = Once(c)
             job = Job(texts: texts, source: source, target: target, done: { once.resume($0) })
-            DispatchQueue.main.asyncAfter(deadline: .now() + 90) { [weak self] in
+            lastError = ""
+            DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
+                if self?.job != nil { self?.lastError = "超时（没有收到系统的翻译回应）" }
                 once.resume(nil)
                 if self?.job != nil { self?.job = nil }
             }
@@ -76,7 +81,7 @@ struct TranslationHost: ViewModifier {
                     for r in res { if let i = r.clientIdentifier.flatMap({ Int($0) }), i < out.count { out[i] = r.targetText } }
                     await MainActor.run { j.done(out); coord.job = nil }
                 } catch {
-                    await MainActor.run { j.done(nil); coord.job = nil }
+                    await MainActor.run { coord.lastError = error.localizedDescription; j.done(nil); coord.job = nil }
                 }
             }
     }
@@ -96,9 +101,46 @@ final class Translator: ObservableObject {
     var allowAIFallback = false
     init(gateway: GatewayClient) { self.gateway = gateway }
 
+    /// Cached per (target, text): a sentence is translated once, ever. Misses go to Apple's on-device model in one deduplicated batch.
     func translate(_ texts: [String], source: String?, target: String) async -> [String]? {
-        if #available(iOS 18.0, *), let r = await coord.run(texts: texts, source: source, target: target), r.count == texts.count { return r }
-        guard allowAIFallback else { return nil }            // page text never leaves the phone unless the user opted in
-        return try? await gateway.translateBatch(texts, target: target)
+        let cache = TranslationCache.shared
+        var out = texts
+        var misses: [String: [Int]] = [:]
+        for (i, t) in texts.enumerated() {
+            if let c = cache.get(t, target) { out[i] = c } else { misses[t, default: []].append(i) }
+        }
+        if misses.isEmpty { return out }
+        let uniq = Array(misses.keys)
+        var got: [String]?
+        if #available(iOS 18.0, *), let r = await coord.run(texts: uniq, source: source, target: target), r.count == uniq.count { got = r }
+        if got == nil, allowAIFallback { got = try? await gateway.translateBatch(uniq, target: target) }   // page text never leaves the phone unless the user opted in
+        guard let g = got, g.count == uniq.count else { return nil }
+        cache.put(Array(zip(uniq, g)), target: target)
+        for (u, t) in zip(uniq, g) { for i in misses[u] ?? [] { out[i] = t } }
+        return out
+    }
+}
+}
+
+
+/// Translations survive restarts (and are shared by pages and the news screen), so a page or headline seen before appears translated at once.
+@MainActor
+final class TranslationCache {
+    static let shared = TranslationCache()
+    private var map: [String: String]
+    private let file = JSONFile<[String: String]>("translation-cache.json")
+    private var pending: Task<Void, Never>?
+    private init() { map = file.load([:]) }
+
+    func get(_ text: String, _ target: String) -> String? { map[target + "\u{1}" + text] }
+    func put(_ pairs: [(String, String)], target: String) {
+        for (a, b) in pairs where !b.isEmpty { map[target + "\u{1}" + a] = b }
+        if map.count > 24_000 { for k in map.keys.prefix(6_000) { map[k] = nil } }
+        pending?.cancel()
+        pending = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled, let self else { return }
+            self.file.save(self.map)
+        }
     }
 }

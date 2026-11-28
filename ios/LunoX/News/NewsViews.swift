@@ -143,22 +143,24 @@ struct HeroCard: View {
     let a: Article
     let autoplay: Bool
     let tap: () -> Void
+    @State private var sound = false
     @EnvironmentObject var store: BrowserStore
+    @EnvironmentObject var news: NewsStore
     @State private var live = false
     var body: some View {
-        Button(action: tap) {
+        Button(action: { if a.video != nil && !sound { Haptics.soft(); withAnimation(.easeIn(duration: 0.3)) { sound = true; live = true } } else { tap() } }) {
             Color.clear.aspectRatio(4.0 / 3.4, contentMode: .fit)
                 .overlay { RemoteImage(url: a.image) }
                 .overlay {
                     if live, a.video?.kind == "youtube", let id = a.video?.id {
-                        YouTubeView(id: id, autoplay: true, controls: false, mute: true, dataStore: store.dataStore(isPrivate: false)).allowsHitTesting(false).transition(.opacity)
+                        YouTubeView(id: id, autoplay: true, controls: sound, mute: !sound, dataStore: store.dataStore(isPrivate: false)).allowsHitTesting(sound).id(sound).transition(.opacity)
                     }
                 }
                 .overlay { LinearGradient(colors: [.clear, .black.opacity(0.18), .black.opacity(0.82)], startPoint: .top, endPoint: .bottom) }
                 .overlay(alignment: .bottomLeading) {
                     VStack(alignment: .leading, spacing: 8) {
                         if a.video != nil { Label("视频", systemImage: "play.rectangle.fill").font(.system(size: 11, weight: .bold, design: .rounded)).foregroundStyle(.white).padding(.horizontal, 9).padding(.vertical, 4).background(.white.opacity(0.22), in: Capsule()) }
-                        Text(a.title).font(.system(size: 24, weight: .bold, design: .rounded)).foregroundStyle(.white).lineLimit(3).multilineTextAlignment(.leading)
+                        Text(news.title(a)).font(.system(size: 24, weight: .bold, design: .rounded)).foregroundStyle(.white).lineLimit(3).multilineTextAlignment(.leading)
                         Meta(a: a, light: true)
                     }.padding(18)
                 }
@@ -180,31 +182,64 @@ struct HeroCard: View {
 struct BigCard: View {
     let a: Article
     let tap: () -> Void
+    @EnvironmentObject var news: NewsStore
+    @EnvironmentObject var store: BrowserStore
+    @State private var playing = false
     @Environment(\.theme) private var theme
     var body: some View {
-        Button(action: tap) {
-            VStack(alignment: .leading, spacing: 10) {
-                Color.clear.aspectRatio(16.0 / 9.0, contentMode: .fit)
-                    .overlay { RemoteImage(url: a.image) }
-                    .overlay { if a.video != nil { PlayBadge() } }
-                    .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                Text(a.title).font(.system(size: 19, weight: .bold, design: .rounded)).foregroundStyle(theme.ink).lineLimit(3).multilineTextAlignment(.leading)
-                if !a.summary.isEmpty { Text(a.summary).font(.system(size: 14)).foregroundStyle(theme.inkSoft).lineLimit(2).multilineTextAlignment(.leading) }
-                Meta(a: a)
-            }.frame(maxWidth: .infinity, alignment: .leading)
-        }.buttonStyle(PressableStyle(scale: 0.985))
+        VStack(alignment: .leading, spacing: 10) {
+            Color.clear.aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .overlay { RemoteImage(url: a.image) }
+                .overlay { if a.video != nil && !playing { PlayBadge() } }
+                .overlay { if playing { InlineVideo(a: a).transition(.opacity) } }
+                .overlay(alignment: .topTrailing) {
+                    if playing { Button { tap() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 12, weight: .bold)).foregroundStyle(.white).frame(width: 30, height: 30).background(.black.opacity(0.5), in: Circle()) }.padding(8) }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .contentShape(Rectangle())
+                .onTapGesture { if a.video != nil { Haptics.soft(); withAnimation(.easeIn(duration: 0.3)) { playing = true } } else { tap() } }
+            Button(action: tap) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(news.title(a)).font(.system(size: 19, weight: .bold, design: .rounded)).foregroundStyle(theme.ink).lineLimit(3).multilineTextAlignment(.leading)
+                    if !news.summary(a).isEmpty { Text(news.summary(a)).font(.system(size: 14)).foregroundStyle(theme.inkSoft).lineLimit(2).multilineTextAlignment(.leading) }
+                    Meta(a: a)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }.buttonStyle(PressableStyle(scale: 0.985))
+        }
+        .onDisappear { playing = false }
+    }
+}
+
+/// A video that plays inside the card the moment it is tapped (YouTube embed or a direct file), with sound and controls.
+struct InlineVideo: View {
+    let a: Article
+    @EnvironmentObject var store: BrowserStore
+    @State private var player: AVPlayer?
+    var body: some View {
+        ZStack {
+            Color.black
+            if let v = a.video, v.kind == "youtube", let id = v.id {
+                YouTubeView(id: id, autoplay: true, controls: true, mute: false, dataStore: store.dataStore(isPrivate: false))
+            } else if let p = player { VideoPlayer(player: p) }
+            else { ProgressView().tint(.white) }
+        }
+        .task {
+            if let s = a.video?.url, let u = URL(string: s), a.video?.kind != "youtube" { let p = AVPlayer(url: u); player = p; p.play() }
+        }
+        .onDisappear { player?.pause() }
     }
 }
 
 struct CompactRow: View {
     let a: Article
     let tap: () -> Void
+    @EnvironmentObject var news: NewsStore
     @Environment(\.theme) private var theme
     var body: some View {
         Button(action: tap) {
             HStack(alignment: .top, spacing: 14) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(a.title).font(.system(size: 16.5, weight: .semibold, design: .rounded)).foregroundStyle(theme.ink).lineLimit(4).multilineTextAlignment(.leading)
+                    Text(news.title(a)).font(.system(size: 16.5, weight: .semibold, design: .rounded)).foregroundStyle(theme.ink).lineLimit(4).multilineTextAlignment(.leading)
                     Meta(a: a)
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 if a.image != nil {

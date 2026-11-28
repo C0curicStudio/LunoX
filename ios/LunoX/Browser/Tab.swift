@@ -49,6 +49,8 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
     @Published var translated = false
     @Published var translating = false
     @Published var translateDismissed = false
+    private var dismissedHost: String?
+    func dismissTranslateBanner() { translateDismissed = true; dismissedHost = (webView?.url ?? url)?.host }
     @Published var template: TemplateRoute?     // set = a native page replaces the web view
     var pendingNative = false                   // user went to sign in: switch to the native page once they are in
     var webMode = false                         // user chose "原网页": links stay on the web
@@ -339,7 +341,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         guard sample.count > 60, let d = LanguageUtil.detect(sample) else { canTranslate = false; return }
         pageLang = d.code
         canTranslate = d.confidence >= 0.6 && !LanguageUtil.same(d.code, target)
-        if canTranslate, store.settings.prefs.autoTranslate, !isPrivate, !translated { Task { await translate() } }
+        if canTranslate, store.settings.prefs.autoTranslatePages, !isPrivate, !translated { Task { await translate() } }
     }
 
     /// Translates the page in place (on-device Translation framework, or the server's AI as fallback).
@@ -350,12 +352,19 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
               let ids = pack["ids"] as? [Int], let texts = pack["texts"] as? [String], !texts.isEmpty else { return }
         let target = store.settings.translateTarget
         store.translator.allowAIFallback = store.settings.prefs.translateAIFallback
-        guard let out = await store.translator.translate(texts, source: pageLang, target: target), out.count == texts.count else {
-            note = "翻译失败：请在系统弹出的提示里下载该语言包后重试"; Haptics.warn(); return
+        // small first batch (what is on screen) -> applied at once; the rest follows in growing batches. Cached sentences cost nothing.
+        let sizes = [24, 80, 220]
+        var i = 0, k = 0, first = true
+        while i < texts.count {
+            let n = min(sizes[min(k, sizes.count - 1)], texts.count - i); k += 1
+            let sub = Array(texts[i..<(i + n)]), subIDs = Array(ids[i..<(i + n)]); i += n
+            guard let out = await store.translator.translate(sub, source: pageLang, target: target), out.count == sub.count else {
+                if first { flash("翻译失败：" + (store.translator.coord.lastError.isEmpty ? "请在系统弹出的提示里下载该语言包后重试" : store.translator.coord.lastError)); Haptics.warn() }
+                return
+            }
+            _ = try? await webView?.callAsyncJavaScript("window.__luno.translateApply(ids, texts)", arguments: ["ids": subIDs, "texts": out], in: nil, contentWorld: NativeAdapter.world)
+            if first { translated = true; Haptics.ok(); first = false }
         }
-        _ = try? await webView?.callAsyncJavaScript("window.__luno.translateApply(ids, texts)", arguments: ["ids": ids, "texts": out], in: nil, contentWorld: NativeAdapter.world)
-        if !translated { Haptics.ok() }
-        translated = true
     }
 
     func showOriginal() { Task { _ = await js("window.__luno.translateRestore()"); translated = false } }
@@ -434,7 +443,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         if let u = webView.url, u.scheme != "about" { url = u }
         if pendingNative, store.settings.prefs.nativeTemplates, let u = webView.url, let r = TemplateRoute.match(u), r.platform.isSocial { pendingNative = false; navigate(u) }
         if loadingArchive { showingCachedCopy = true }
-        translated = false; canTranslate = false; translateDismissed = false; pageLang = nil
+        translated = false; canTranslate = false; translateDismissed = dismissedHost != nil && dismissedHost == webView.url?.host; pageLang = nil
         let site = store.settings.site(webView.url?.host)
         let p = store.settings.prefs
         Task { _ = await js("window.__luno && window.__luno.setFilter(\(p.blockAppPrompts && !site.allowNags), \(p.blockForcedLogin && !site.allowNags))") }

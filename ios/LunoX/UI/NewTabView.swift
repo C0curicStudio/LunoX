@@ -214,8 +214,8 @@ struct NewTabView: View {
 
     private func pair() {
         let t = (UIPasteboard.general.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if let u = URL(string: t), settings.applySetupLink(u) {
-            pairMsg = "已配对 ✓"; Haptics.ok(); router.apply(); Task { await edge.measure(force: true) }
+        if let u = URL(string: t), store.applyPairing(u) {
+            pairMsg = "已配对 ✓"; Haptics.ok()
         } else { pairMsg = "剪贴板里没有 lunox:// 配对链接"; Haptics.warn() }
     }
 

@@ -20,7 +20,7 @@ struct LunoXApp: App {
                 .environmentObject(store.extensions)
                 .environmentObject(lock)
                 .onOpenURL { url in
-                    if store.settings.applySetupLink(url) { store.router.apply(); Haptics.ok() }
+                    if store.applyPairing(url) { Haptics.ok() }
                     else if url.scheme == "http" || url.scheme == "https" { store.newTab(url: url) }
                 }
                 .onChange(of: phase) { _, p in

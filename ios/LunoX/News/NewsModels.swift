@@ -40,6 +40,10 @@ final class NewsStore: ObservableObject {
     @Published private(set) var loading: Set<NewsSection> = []
     @Published private(set) var failed: [NewsSection: String] = [:]
     @Published private(set) var fromCache = false
+    /// article id -> translated (title, summary); filled in the background so headlines read in your language.
+    @Published private(set) var tr: [String: [String]] = [:]
+    var translate: (([String], String?) async -> [String]?)?
+    private var translating = false
 
     private let gateway: GatewayClient
     private let settings: Settings
@@ -52,6 +56,7 @@ final class NewsStore: ObservableObject {
         self.gateway = gateway; self.settings = settings
         self.engine = NewsEngine(gateway: gateway, router: router, settings: settings)
         for s in NewsSection.allCases where s != .trends { if let a: [Article] = disk("\(s.rawValue).json") { articles[s] = a } }
+        if let t: [String: [String]] = disk("tr.json") { tr = t }
         if let t: [Trend] = disk("trends.json") { trends = t }
         if let sc: [Score] = disk("scores.json") { scores = sc }
     }
@@ -67,6 +72,35 @@ final class NewsStore: ObservableObject {
     }
 
     private struct Wrap<T: Decodable>: Decodable { var items: [T] }
+
+    func title(_ a: Article) -> String { settings.prefs.translateNews ? (tr[a.id]?.first ?? a.title) : a.title }
+    func summary(_ a: Article) -> String { settings.prefs.translateNews ? (tr[a.id]?.last.flatMap { $0.isEmpty ? nil : $0 } ?? a.summary) : a.summary }
+
+    /// Launch: refresh the front page in the background (the last copy is already on screen from disk).
+    func warmUp() {
+        Task { [weak self] in try? await Task.sleep(nanoseconds: 1_200_000_000); await self?.load(.explore) }
+    }
+
+    /// Apple on-device translation of headlines that are not in the reading language. Grouped by source language, 30 at a time.
+    private func translateHeadlines(_ items: [Article]) async {
+        guard settings.prefs.translateNews, let translate, !translating else { return }
+        let target = LanguageUtil.target(settings.prefs.translateTarget)
+        var groups: [String: [Article]] = [:]
+        for a in items.prefix(30) where tr[a.id] == nil {
+            guard let d = LanguageUtil.detect(a.title), d.confidence > 0.5, !LanguageUtil.same(d.code, target) else { continue }
+            groups[d.code, default: []].append(a)
+        }
+        guard !groups.isEmpty else { return }
+        translating = true; defer { translating = false }
+        for (code, arts) in groups {
+            let texts = arts.flatMap { [$0.title, String($0.summary.prefix(160))] }
+            guard let out = await translate(texts, code), out.count == texts.count else { continue }
+            var next = tr
+            for (i, a) in arts.enumerated() { next[a.id] = [out[i * 2], out[i * 2 + 1]] }
+            withAnimation(.easeInOut(duration: 0.25)) { tr = next }
+            save(next, "tr.json")
+        }
+    }
 
     private func hasContent(_ s: NewsSection) -> Bool { s == .trends ? !trends.isEmpty : !(articles[s] ?? []).isEmpty }
 
@@ -91,7 +125,7 @@ final class NewsStore: ObservableObject {
             return
         }
 
-        var items = await engine.load(s) { [weak self] partial in self?.articles[s] = partial }
+        var items = await engine.load(s) { [weak self] partial in self?.articles[s] = partial; Task { await self?.translateHeadlines(partial) } }
         if items.isEmpty, settings.gatewayConfigured, let d = try? await gateway.newsData("/v1/news", ["cat": s.rawValue]),
            let srv = try? JSONDecoder().decode(Wrap<Article>.self, from: d).items { items = srv }
         if items.isEmpty {
@@ -99,6 +133,8 @@ final class NewsStore: ObservableObject {
             fromCache = !(articles[s] ?? []).isEmpty
         } else {
             articles[s] = items; save(items, "\(s.rawValue).json"); fetchedAt[s] = Date(); fromCache = false
+            Task { await translateHeadlines(items) }
+            for a in items.prefix(8) { if let u = a.image { Task.detached(priority: .utility) { _ = await ImageStore.shared.load(u) } } }
         }
         if s == .explore || s == .sports {
             let sc = await engine.scores()

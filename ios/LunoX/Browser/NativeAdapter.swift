@@ -329,7 +329,7 @@ enum NativeAdapter {
       var tr = { nodes: {}, orig: {}, next: 1, on: false, observer: null, timer: null };
       var SKIP = /^(SCRIPT|STYLE|NOSCRIPT|CODE|PRE|TEXTAREA|INPUT|SELECT|SVG|CANVAS|KBD|SAMP)$/;
       function translateCollect() {
-        var ids = [], texts = [], chars = 0;
+        var ids = [], texts = [], tops = [], chars = 0;
         if (!document.body) return { ids: ids, texts: texts };
         var w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
         var n;
@@ -340,8 +340,13 @@ enum NativeAdapter {
           var id = n.__lunoId || (n.__lunoId = tr.next++);
           tr.nodes[id] = n; if (!(id in tr.orig)) tr.orig[id] = t;
           ids.push(id); texts.push(t.trim()); chars += t.length;
+          var r = p.getBoundingClientRect(); tops.push(r.top + (r.height ? 0 : 1e6));
         }
-        return { ids: ids, texts: texts };
+        // what the reader sees first (the screen and the next screen or two) goes to the translator first
+        var H = window.innerHeight || 800, order = ids.map(function (_, i) { return i; });
+        function rank(i) { var t = tops[i]; return (t > -60 && t < H * 2.2) ? 0 : 1; }
+        order.sort(function (a, b) { var ra = rank(a), rb = rank(b); return ra !== rb ? ra - rb : (ra === 0 ? tops[a] - tops[b] : a - b); });
+        return { ids: order.map(function (i) { return ids[i]; }), texts: order.map(function (i) { return texts[i]; }) };
       }
       function translateApply(ids, texts) {
         for (var i = 0; i < ids.length; i++) {

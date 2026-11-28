@@ -238,7 +238,7 @@ final class NewsEngine {
     private let settings: Settings
     init(gateway: GatewayClient, router: Router, settings: Settings) { self.gateway = gateway; self.router = router; self.settings = settings }
 
-    private nonisolated static func direct(_ url: URL, timeout: TimeInterval = 7, userAgent: String? = nil, headers: [String: String] = [:]) async -> Data? {
+    private nonisolated static func direct(_ url: URL, timeout: TimeInterval = 4.5, userAgent: String? = nil, headers: [String: String] = [:]) async -> Data? {
         let c = URLSessionConfiguration.ephemeral; c.connectionProxyDictionary = [:]; c.timeoutIntervalForRequest = timeout; c.timeoutIntervalForResource = timeout + 2; c.waitsForConnectivity = false
         let s = URLSession(configuration: c); defer { s.finishTasksAndInvalidate() }
         var r = URLRequest(url: url)
@@ -258,7 +258,7 @@ final class NewsEngine {
             g.addTask { await Self.direct(url, userAgent: userAgent, headers: headers) }
             if paired {
                 g.addTask { [gateway] in
-                    try? await Task.sleep(nanoseconds: 2_500_000_000)
+                    try? await Task.sleep(nanoseconds: 1_300_000_000)
                     if Task.isCancelled { return nil }
                     return (try? await gateway.fetch(url, maxBytes: maxBytes))?.0
                 }

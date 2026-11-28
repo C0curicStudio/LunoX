@@ -96,7 +96,8 @@ struct GeneralSettings: View {
                     Text("跟随系统（\(LanguageUtil.name(LanguageUtil.systemTarget()))）").tag("")
                     ForEach(LanguageUtil.supported, id: \.code) { Text($0.name).tag($0.code) }
                 } label: { RowLabel(icon: "character.bubble", title: "翻译成") }
-                Toggle(isOn: $settings.prefs.autoTranslate) { RowLabel(icon: "wand.and.stars", title: "自动翻译外语网页") }
+                Toggle(isOn: $settings.prefs.autoTranslatePages) { RowLabel(icon: "wand.and.stars", title: "自动翻译外语网页") }
+                Toggle(isOn: $settings.prefs.translateNews) { RowLabel(icon: "newspaper", title: "自动翻译新闻标题") }
                 Toggle(isOn: $settings.prefs.translateAIFallback) { RowLabel(icon: "sparkles", title: "苹果翻译不可用时用服务器 AI") }
             } header: { Text("翻译").textCase(nil) }
             footer: { Text("使用 Apple 系统翻译：网页文字只在手机上处理。每个语言首次使用时系统会弹出它自己的下载提示，下载一次后离线秒翻。服务器 AI 默认关闭（开启后网页文字会发送到你的服务器和模型）。") }.sectionStyle(theme.surface)
@@ -233,13 +234,13 @@ struct NetworkSettings: View {
     }
     private func pairFromClipboard() {
         let t = (UIPasteboard.general.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        if let u = URL(string: t), settings.applySetupLink(u) {
-            result = "已配对"; router.apply(); Haptics.ok(); Task { await edge.measure(force: true) }
+        if let u = URL(string: t), store.applyPairing(u) {
+            result = "已配对"; Haptics.ok()
         } else { result = "剪贴板里没有配对链接"; Haptics.warn() }
     }
     private func importLink() {
-        if let u = URL(string: link.trimmingCharacters(in: .whitespacesAndNewlines)), settings.applySetupLink(u) {
-            link = ""; result = "已导入"; router.apply(); Haptics.ok(); Task { await edge.measure(force: true) }
+        if let u = URL(string: link.trimmingCharacters(in: .whitespacesAndNewlines)), store.applyPairing(u) {
+            link = ""; result = "已导入"; Haptics.ok()
         } else { result = "链接无效"; Haptics.warn() }
     }
     private func test() async {

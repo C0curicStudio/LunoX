@@ -282,12 +282,13 @@ struct TranslateBanner: View {
                     Text(tab.translating ? "翻译中…" : "翻译成\(LanguageUtil.name(settings.translateTarget))").font(.system(size: 13, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white).padding(.horizontal, 12).padding(.vertical, 6).background(theme.accent, in: Capsule())
                 }.buttonStyle(PressableStyle(scale: 0.92)).disabled(tab.translating)
-                Button { withAnimation(.snappy) { tab.translateDismissed = true } } label: {
-                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(theme.inkSoft).frame(width: 24, height: 24)
-                }.buttonStyle(.plain)
+                Button { Haptics.tap(); withAnimation(.snappy) { tab.dismissTranslateBanner() } } label: {
+                    Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).foregroundStyle(theme.inkSoft).frame(width: 40, height: 40).contentShape(Rectangle())
+                }.buttonStyle(PressableStyle(scale: 0.85))
             }
-            .padding(.leading, 14).padding(.trailing, 8).padding(.vertical, 7)
+            .padding(.leading, 14).padding(.trailing, 2).padding(.vertical, 2)
             .lunoGlass(Capsule()).transition(.move(edge: .top).combined(with: .opacity))
+            .gesture(DragGesture(minimumDistance: 8).onEnded { g in if g.translation.height < -10 { withAnimation(.snappy) { tab.dismissTranslateBanner() } } })
         }
     }
 }

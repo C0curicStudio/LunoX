@@ -16,6 +16,16 @@ struct Hy2Config: Codable, Equatable {
     var downMbps: Int = 0
 }
 
+extension Hy2Config {
+    /// `hy2=` value of a lunox://setup link: URL-safe base64 of the JSON the server printed.
+    static func fromLink(_ v: String) -> Hy2Config? {
+        var b = v.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        while b.count % 4 != 0 { b += "=" }
+        guard let d = Data(base64Encoded: b), let c = try? JSONDecoder().decode(Hy2Config.self, from: d), !c.host.isEmpty, c.port > 0, !c.auth.isEmpty else { return nil }
+        return c
+    }
+}
+
 /// The official Hysteria2 client, compiled into the app (ios/hy2bridge -> Hy2bridge.xcframework).
 /// It exposes a loopback HTTP CONNECT proxy; WebKit is pointed at it, so no VPN profile or second app is needed.
 @MainActor

@@ -154,6 +154,16 @@ final class BrowserStore: ObservableObject {
         persistSoon()
     }
 
+    /// One entry point for every pairing link (clipboard, paste box, tapped link): gateway + built-in Hysteria2.
+    @discardableResult
+    func applyPairing(_ url: URL) -> Bool {
+        guard settings.applySetupLink(url) else { return false }
+        if let c = settings.pendingHy2 { settings.pendingHy2 = nil; hy2.update(c) }
+        router.apply()
+        if settings.gatewayConfigured { Task { await edge.measure(force: true) } }
+        return true
+    }
+
     func setBars(collapsed: Bool, force: Bool = false) {
         guard barsCollapsed != collapsed else { return }
         if !collapsed, settings.prefs.compactBar, !force { return }      // "always compact": only a tap on the pill opens it
@@ -292,6 +302,8 @@ final class BrowserStore: ObservableObject {
         if let hp = URL(string: settings.prefs.homepage), !settings.prefs.homepage.isEmpty, current?.isBlank == true { current?.navigate(hp) }
         if settings.prefs.syncBookmarks { Task { await sync() } }
         if settings.prefs.nativeTemplates { templates.warmUp() }
+        news.translate = { [weak self] texts, source in await self?.translator.translate(texts, source: source, target: LanguageUtil.target(self?.settings.prefs.translateTarget ?? "")) }
+        news.warmUp()
     }
 
     // MARK: data

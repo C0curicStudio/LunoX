@@ -10,5 +10,10 @@ PIN=$(openssl x509 -in /etc/lunox/tls/server.crt -outform DER | sha256sum | cut 
 echo
 echo "Copy this ONE line (long-press, Select All/Copy), then in the app: Settings > Network > paste > Import"
 echo
-echo "lunox://setup?host=$IP&port=$PORT&key=$KEY&pin=$PIN"
+HY2=""
+if [ -r /var/lib/lunox/hy2.json ]; then
+  NODE=/opt/lunox/runtime/bin/node; [ -x "$NODE" ] || NODE=$(command -v node)
+  HY2="&hy2=$("$NODE" -e 'process.stdout.write(Buffer.from(JSON.stringify(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")))).toString("base64url"))' /var/lib/lunox/hy2.json)"
+fi
+echo "lunox://setup?host=$IP&port=$PORT&key=$KEY&pin=$PIN$HY2"
 echo

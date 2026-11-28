@@ -67,4 +67,11 @@ const e = process.env;
 require("fs").writeFileSync(e.H2_FILE, JSON.stringify({ host: e.H2_HOST, port: +e.H2_PORT, auth: e.H2_AUTH, obfs: e.H2_OBFS, sni: e.H2_SNI, pin: e.H2_PIN, insecure: e.H2_INSECURE === "true", downMbps: +e.H2_DOWN }), { mode: 0o600 });'
 id lunox >/dev/null 2>&1 && chown lunox:lunox "$STATE_DIR/hy2.json" || true
 echo "saved -> $STATE_DIR/hy2.json   host=$HOST port=$PORT obfs=$([ -n "$OBFS" ] && echo on || echo off) pin=$([ -n "$PIN" ] && echo on || echo off) insecure=$INSECURE down=${DOWN}Mbps"
-echo "Open LunoX > Settings > Network > Connection diagnostics: the 'built-in Hysteria2' line should turn green."
+echo
+if [ -r /etc/lunox/env ] && [ -f "$(dirname "$0")/pair-link.sh" ]; then
+  echo "Now copy the ONE line below (long-press > Select All > Copy), switch to LunoX and tap the orange banner / Settings > Network > 'Pair from clipboard':"
+  bash "$(dirname "$0")/pair-link.sh" | grep '^lunox://' || true
+else
+  LINK=$("$NODE" -e 'process.stdout.write("lunox://setup?hy2="+Buffer.from(require("fs").readFileSync(process.argv[1])).toString("base64url"))' "$STATE_DIR/hy2.json")
+  echo "Copy this ONE line, then in LunoX tap the orange banner (or Settings > Network > Pair from clipboard):"; echo; echo "$LINK"
+fi

@@ -21,11 +21,12 @@ struct Prefs: Codable, Equatable {
     var autoDarkPages = true
     var preferEdgeTunnel = false
     var translateTarget = ""          // "" = follow the phone's language
-    var autoTranslate = false
+    var autoTranslatePages = true     // translate foreign-language pages as soon as they load
     var startOrder: [String] = ["favorites", "frequent", "news", "offline", "closed"]
     var startHidden: [String] = ["closed"]
     var startBackground = ""          // "" = plain (default)
     var newsAutoplay = true
+    var translateNews = true          // translate headlines into the reading language
     var nativeTemplates = true        // YouTube / Bilibili … open as native pages
     var compactBar = false            // keep the bottom bar small until tapped
     var useHy2 = true
@@ -83,19 +84,26 @@ final class Settings: ObservableObject {
         f(&s); sites[k] = s
     }
 
-    /// lunox://setup?host=&port=&key=&pin=
+    /// Hysteria2 parameters that came with the last setup link (handed to the Hysteria2 manager by the caller).
+    var pendingHy2: Hy2Config?
+
+    /// lunox://setup?host=&port=&key=&pin=[&edge=][&hy2=<base64url json>]  (either the gateway part, the hy2 part, or both)
     @discardableResult
     func applySetupLink(_ url: URL) -> Bool {
         guard url.scheme == "lunox", url.host == "setup",
               let c = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else { return false }
         func q(_ n: String) -> String? { c.first { $0.name == n }?.value }
-        guard let host = q("host"), let key = q("key"), let pin = q("pin"), Pinning.normalize(pin).count == 64,
-              host.range(of: #"^[A-Za-z0-9.\-:]{1,253}$"#, options: .regularExpression) != nil else { return false }
-        prefs.gatewayHost = host
-        prefs.gatewayPort = Int(q("port") ?? "") ?? 8443
-        prefs.gatewayPin = Pinning.normalize(pin)
-        if let e = q("edge"), e.range(of: #"^[A-Za-z0-9.\-]{1,253}$"#, options: .regularExpression) != nil { prefs.edgeHost = e; prefs.edgePort = Int(q("edgePort") ?? "") ?? 8443 }
-        gatewayKey = key
-        return true
+        var ok = false
+        if let h = q("hy2"), let cfg = Hy2Config.fromLink(h) { pendingHy2 = cfg; ok = true }
+        if let host = q("host"), let key = q("key"), let pin = q("pin"), Pinning.normalize(pin).count == 64,
+           host.range(of: #"^[A-Za-z0-9.\-:]{1,253}$"#, options: .regularExpression) != nil {
+            prefs.gatewayHost = host
+            prefs.gatewayPort = Int(q("port") ?? "") ?? 8443
+            prefs.gatewayPin = Pinning.normalize(pin)
+            if let e = q("edge"), e.range(of: #"^[A-Za-z0-9.\-]{1,253}$"#, options: .regularExpression) != nil { prefs.edgeHost = e; prefs.edgePort = Int(q("edgePort") ?? "") ?? 8443 }
+            gatewayKey = key
+            ok = true
+        }
+        return ok
     }
 }
