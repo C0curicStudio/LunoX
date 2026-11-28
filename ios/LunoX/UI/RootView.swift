@@ -10,6 +10,7 @@ struct RootView: View {
     @State private var showSite = false
     @State private var showFind = false
     @State private var showAssistant = false
+    @State private var assistantQuestion = ""
     @State private var showPicker = false
     @State private var menuDetent: PresentationDetent = .medium
     @State private var showNews = false
@@ -39,16 +40,20 @@ struct RootView: View {
                 Spacer()
                 if let tab = store.current {
                     if showFind { FindBar(tab: tab) { withAnimation(.snappy) { showFind = false } }.transition(.move(edge: .bottom).combined(with: .opacity)) }
-                    BottomChrome(tab: tab, vault: store.vault, ns: ns, searching: searching,
+                    BottomChrome(tab: tab, vault: store.vault, ns: ns, searching: searching || showAssistant,
                                  onSearch: openSearch, onSite: { showSite = true }, onMenu: { showMenu = true }, onTabs: openSwitcher,
                                  onReader: { menuRoute = .reader; showMenu = true },
                                  onTranslate: { if tab.translated { tab.showOriginal() } else { Task { await tab.translate() } } },
-                                 onAI: { Haptics.soft(); showAssistant = true },
+                                 onAI: { Haptics.soft(); assistantQuestion = ""; showAssistant = true },
                                  onKey: { showPicker = true })
                 }
             }
             .padding(.bottom, 2).zIndex(2)
 
+            if showAssistant, let tab = store.current {
+                AIQuickBar(tab: tab, initialQuestion: assistantQuestion) { withAnimation(Motion.snappy) { showAssistant = false } }
+                    .id(assistantQuestion + (showAssistant ? "1" : "0")).transition(.opacity).zIndex(3)
+            }
             if searching, let tab = store.current {
                 SearchOverlay(tab: tab, ns: ns) { withAnimation(.spring(response: 0.38, dampingFraction: 0.9)) { searching = false } }
                     .transition(.opacity).zIndex(3)
@@ -74,8 +79,9 @@ struct RootView: View {
             if let t = store.current { LoginPicker(tab: t).presentationDetents([.medium, .large]).presentationDragIndicator(.visible) }
         }
         .onChange(of: store.loginPickerRequest) { _, _ in showPicker = true }
-        .sheet(isPresented: $showAssistant) {
-            if let t = store.current { AIAssistantView(tab: t).presentationDetents([.medium, .large]).presentationDragIndicator(.visible).presentationBackgroundInteraction(.enabled(upThrough: .medium)) }
+        .onChange(of: store.assistantRequest) { _, r in
+            guard let r else { return }
+            assistantQuestion = r.text; showAssistant = true; store.assistantRequest = nil
         }
         .sheet(isPresented: $showStartEdit) { StartPageEditor().presentationDetents([.large]).presentationDragIndicator(.visible) }
         .sheet(isPresented: $showMenu, onDismiss: { menuRoute = nil; menuDetent = .medium }) {

@@ -41,9 +41,11 @@ chown -R lunox:lunox /var/lib/lunox
 
 echo "==> 4/6 TLS certificate (self-signed, pinned by the app)"
 if [ ! -f /etc/lunox/tls/server.crt ]; then
-  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 3650 \
+  # iOS only accepts server certificates with serverAuth usage and a validity of at most ~13 months
+  openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 397 \
     -keyout /etc/lunox/tls/server.key -out /etc/lunox/tls/server.crt \
-    -subj "/CN=lunox-gateway" -addext "subjectAltName=IP:$IP" 2>/dev/null
+    -subj "/CN=lunox-gateway" -addext "subjectAltName=IP:$IP" -addext "extendedKeyUsage=serverAuth" \
+    -addext "keyUsage=critical,digitalSignature" -addext "basicConstraints=critical,CA:FALSE" 2>/dev/null
 fi
 chown root:lunox /etc/lunox/tls/server.key /etc/lunox/tls/server.crt
 chmod 640 /etc/lunox/tls/server.key; chmod 644 /etc/lunox/tls/server.crt

@@ -67,8 +67,6 @@ struct SearchOverlay: View {
     @State private var text = ""
     @State private var remote: [String] = []
     @State private var task: Task<Void, Never>?
-    @State private var showAI = false
-    @State private var aiQuestion = ""
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -100,7 +98,6 @@ struct SearchOverlay: View {
         }
         .onAppear { text = tab.isBlank ? "" : (tab.url?.absoluteString ?? "") }
         .onChange(of: text) { _, v in queryRemote(v) }
-        .sheet(isPresented: $showAI) { AIAssistantView(tab: tab, initialQuestion: aiQuestion).presentationDetents([.medium, .large]).presentationDragIndicator(.visible) }
     }
 
     private var rows: [Suggestion] {
@@ -148,16 +145,20 @@ struct SearchOverlay: View {
     }
 
     private func pick(_ r: Suggestion) {
-        if r.kind == .ai { aiQuestion = r.value; showAI = true; return }
+        if r.kind == .ai { aiAsk(r.value); return }
         go(r.value, smart: r.kind != .search)         // choosing the plain search row means "do not redirect"
     }
     /// A clear question / request, and the assistant is available: it answers instead of a search engine.
     private func aiRoutes(_ q: String) -> Bool {
         settings.prefs.aiRouting && settings.prefs.aiEnabled && settings.gatewayConfigured && QuestionIntent.isQuestion(q)
     }
+    private func aiAsk(_ q: String) {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        close(); store.askAI(q)
+    }
     private func submit() {
         let q = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if aiRoutes(q) { aiQuestion = q; showAI = true } else { go(text) }
+        if aiRoutes(q) { aiAsk(q) } else { go(text) }
     }
     private func go(_ s: String, smart: Bool = true) {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)

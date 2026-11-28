@@ -19,6 +19,10 @@ final class BrowserStore: ObservableObject {
     let vault = Vault()
     @Published var savePrompt: SavePrompt?
     @Published var loginPickerRequest = 0
+    struct AssistantRequest: Equatable { let id = UUID(); var text: String }
+    @Published var assistantRequest: AssistantRequest?
+    /// Open the AI input bar (optionally with a question already asked).
+    func askAI(_ q: String = "") { assistantRequest = AssistantRequest(text: q) }
     let fingerprintHandler = FingerprintHandler()
     let news: NewsStore
     @Published var newsRequest = 0

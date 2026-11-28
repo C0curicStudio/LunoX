@@ -85,187 +85,132 @@ final class AssistantModel: ObservableObject {
     }
 }
 
-/// The assistant, laid out like the one in Chrome's address bar: one input, streaming answer, sources, shortcuts for the open page.
-struct AIAssistantView: View {
+/// The assistant is just an input bar at the bottom of the screen (like Chrome's). The answer streams into a small card above it;
+/// there is no separate screen. Tap outside, swipe down or press ✕ to put it away.
+struct AIQuickBar: View {
     @ObservedObject var tab: Tab
     var initialQuestion: String = ""
+    var onClose: () -> Void
     @EnvironmentObject var store: BrowserStore
     @EnvironmentObject var settings: Settings
     @Environment(\.theme) private var theme
-    @Environment(\.dismiss) private var dismiss
     @StateObject private var model = AssistantModel()
     @State private var input = ""
     @State private var showAgent = false
-    @State private var usePage = true
-    @State private var pageChars = 0
     @FocusState private var focus: Bool
 
     private var hasPage: Bool { !tab.isBlank }
+    private var answer: AMessage? { model.messages.last { $0.role == .assistant } }
+    private var showCard: Bool { model.busy || !(answer?.text.isEmpty ?? true) || !settings.gatewayConfigured }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        if !settings.gatewayConfigured { notPaired }
-                        if model.messages.isEmpty { welcome }
-                        ForEach(model.messages) { m in bubble(m).id(m.id) }
-                        Color.clear.frame(height: 6).id("end")
-                    }.padding(.horizontal, 16).padding(.top, 8)
-                }
-                .scrollDismissesKeyboard(.interactively)
-                .onChange(of: model.messages.last?.text) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(showCard ? 0.18 : 0.001).ignoresSafeArea()
+                .onTapGesture { close() }
+                .animation(.easeInOut(duration: 0.2), value: showCard)
+            VStack(spacing: 10) {
+                if showCard { card.transition(.move(edge: .bottom).combined(with: .opacity)) }
+                bar
             }
-            composer
+            .padding(.horizontal, 16).padding(.bottom, 8)
+            .gesture(DragGesture(minimumDistance: 20).onEnded { if $0.translation.height > 40 { close() } })
         }
-        .background(theme.background.ignoresSafeArea())
-        .presentationBackground(.regularMaterial)
+        .animation(Motion.snappy, value: showCard)
         .sheet(isPresented: $showAgent) { AIPanel(tab: tab, initialQuestion: "", initialMode: .agent).presentationDetents([.large]) }
-        .onAppear { if !initialQuestion.isEmpty { send(initialQuestion) } else { focus = true }; scan() }
-        .onChange(of: tab.url) { _, _ in scan() }
-        .onChange(of: tab.isLoading) { _, l in if !l { scan() } }
+        .onAppear { if !initialQuestion.isEmpty { send(initialQuestion) } else { focus = true } }
         .onDisappear { model.cancel() }
     }
 
-    // MARK: pieces
+    // MARK: the answer
 
-    private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "sparkles").font(.system(size: 17, weight: .semibold)).foregroundStyle(theme.accent)
-            Text("AI 助手").font(.system(size: 18, weight: .bold, design: .rounded)).foregroundStyle(theme.ink)
-            Spacer()
-            if !model.messages.isEmpty {
-                Button { Haptics.tap(); model.reset() } label: { Image(systemName: "square.and.pencil").font(.system(size: 16)).foregroundStyle(theme.inkSoft).frame(width: 36, height: 36) }
+    private var card: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles").font(.system(size: 12, weight: .bold)).foregroundStyle(theme.accent)
+                Text(answer?.note ?? "AI").font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundStyle(theme.inkSoft)
+                Spacer()
+                Button { close() } label: { Image(systemName: "xmark.circle.fill").font(.system(size: 20)).foregroundStyle(theme.inkSoft.opacity(0.6)) }
             }
-            Button { dismiss() } label: { Image(systemName: "xmark.circle.fill").font(.system(size: 22)).foregroundStyle(theme.inkSoft.opacity(0.6)).frame(width: 36, height: 36) }
-        }.padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 6)
-    }
-
-    private var welcome: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("想问什么，或者想去哪里？").font(.system(size: 22, weight: .bold, design: .rounded)).foregroundStyle(theme.ink).padding(.top, 10)
-            Text("我会联网搜索后回答并标注来源；说“打开…”我会直接带你过去。").font(.system(size: 14, design: .rounded)).foregroundStyle(theme.inkSoft)
-            VStack(alignment: .leading, spacing: 8) {
-                if hasPage {
-                    chip("doc.text", "总结这个页面") { send("总结一下这个页面") }
-                    chip("list.bullet", "这个页面的要点是什么？") { send("这个页面的要点是什么？") }
-                    chip("character.bubble", "翻译这个页面") { dismiss(); Task { await tab.translate() } }
-                }
-                chip("globe", "今天有什么重要的科技新闻？") { send("今天有什么重要的科技新闻？") }
-                chip("arrow.up.right", "打开 SwiftUI 官方文档") { send("打开 SwiftUI 官方文档") }
-                if hasPage { chip("wand.and.stars", "让 AI 帮我操作这个网页…") { showAgent = true } }
-            }
-        }
-    }
-
-    private func chip(_ icon: String, _ title: String, _ action: @escaping () -> Void) -> some View {
-        Button { Haptics.tap(); action() } label: {
-            HStack(spacing: 10) { Image(systemName: icon).frame(width: 22).foregroundStyle(theme.accent); Text(title).font(.system(size: 15, design: .rounded)).foregroundStyle(theme.ink); Spacer() }
-                .padding(.horizontal, 14).padding(.vertical, 11).background(theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        }.buttonStyle(PressableStyle(scale: 0.98))
-    }
-
-    private var notPaired: some View {
-        Label("还没有连接服务器：AI 需要先配对（设置 › 网络）。", systemImage: "exclamationmark.triangle").font(.system(size: 13)).foregroundStyle(.orange)
-    }
-
-    @ViewBuilder private func bubble(_ m: AMessage) -> some View {
-        if m.role == .user {
-            HStack { Spacer(minLength: 50)
-                Text(m.text).font(.system(size: 16, design: .rounded)).foregroundStyle(.white)
-                    .padding(.horizontal, 14).padding(.vertical, 10).background(theme.accent, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            }
-        } else {
-            VStack(alignment: .leading, spacing: 10) {
-                if let n = m.note { Text(n).font(.system(size: 11, weight: .semibold, design: .rounded)).foregroundStyle(theme.inkSoft) }
-                if m.text.isEmpty { if model.busy { ProgressView().padding(.vertical, 6) } }
-                else {
-                    Text((try? AttributedString(markdown: m.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(m.text))
-                        .font(.system(size: 16, design: .rounded)).foregroundStyle(theme.ink).lineSpacing(4).textSelection(.enabled)
-                }
-                ForEach(m.opens) { o in
-                    Button { Haptics.soft(); openHere(o.url) } label: {
-                        HStack(spacing: 8) { Image(systemName: "arrow.up.right.circle.fill"); Text("打开 \(o.title)").lineLimit(1); Spacer() }
-                            .font(.system(size: 15, weight: .semibold, design: .rounded)).foregroundStyle(.white)
-                            .padding(.horizontal, 14).padding(.vertical, 11).background(theme.accent, in: Capsule())
-                    }.buttonStyle(PressableStyle(scale: 0.98))
-                }
-                if !m.sources.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(Array(m.sources.enumerated()), id: \.offset) { i, s in
-                                Button { Haptics.tap(); openNew(s.url) } label: {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("[\(i + 1)] \(s.title)").font(.system(size: 12, weight: .semibold, design: .rounded)).lineLimit(1)
-                                        Text(URL(string: s.url)?.displayHost ?? "").font(.system(size: 11)).foregroundStyle(theme.inkSoft)
-                                    }.frame(width: 170, alignment: .leading).padding(10).background(theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous)).foregroundStyle(theme.ink)
-                                }.buttonStyle(PressableStyle(scale: 0.97))
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    if !settings.gatewayConfigured {
+                        Label("还没有连接服务器：AI 需要先配对（设置 › 网络）。", systemImage: "exclamationmark.triangle").font(.system(size: 13)).foregroundStyle(.orange)
+                    }
+                    if let a = answer {
+                        if a.text.isEmpty { if model.busy { ProgressView().padding(.vertical, 6) } }
+                        else {
+                            Text((try? AttributedString(markdown: a.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(a.text))
+                                .font(.system(size: 16, design: .rounded)).foregroundStyle(theme.ink).lineSpacing(4).textSelection(.enabled)
+                        }
+                        ForEach(a.opens) { o in
+                            Button { Haptics.soft(); openHere(o.url) } label: {
+                                HStack(spacing: 8) { Image(systemName: "arrow.up.right.circle.fill"); Text("打开 \(o.title)").lineLimit(1); Spacer() }
+                                    .font(.system(size: 15, weight: .semibold, design: .rounded)).foregroundStyle(.white)
+                                    .padding(.horizontal, 14).padding(.vertical, 10).background(theme.accent, in: Capsule())
+                            }.buttonStyle(PressableStyle(scale: 0.98))
+                        }
+                        if !a.sources.isEmpty {
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 8) {
+                                    ForEach(Array(a.sources.enumerated()), id: \.offset) { i, s in
+                                        Button { Haptics.tap(); openNew(s.url) } label: {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text("[\(i + 1)] \(s.title)").font(.system(size: 12, weight: .semibold, design: .rounded)).lineLimit(1)
+                                                Text(URL(string: s.url)?.displayHost ?? "").font(.system(size: 11)).foregroundStyle(theme.inkSoft)
+                                            }.frame(width: 160, alignment: .leading).padding(9).background(theme.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous)).foregroundStyle(theme.ink)
+                                        }.buttonStyle(PressableStyle(scale: 0.97))
+                                    }
+                                }
                             }
                         }
                     }
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }.frame(maxHeight: 320)
         }
+        .padding(14).frame(maxWidth: .infinity)
+        .lunoGlass(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
-    /// "Live scan": re-read the page whenever it changes, so the chip always says what the assistant can see.
-    private func scan() {
-        guard hasPage else { pageChars = 0; return }
-        Task { pageChars = await tab.pageText().count }
-    }
+    // MARK: the input
 
-    @ViewBuilder private var pageChip: some View {
-        if hasPage {
-            Button { Haptics.tap(); usePage.toggle() } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: usePage ? "eye.fill" : "eye.slash").foregroundStyle(usePage ? theme.accent : theme.inkSoft)
-                    Text(usePage ? "正在阅读：\(tab.displayTitle)" : "不读取当前页面").lineLimit(1)
-                    if usePage, pageChars > 0 { Text("\(pageChars) 字").foregroundStyle(theme.inkSoft) }
-                    Spacer(minLength: 0)
-                }
-                .font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundStyle(theme.ink)
-                .padding(.horizontal, 12).padding(.vertical, 7).background(theme.surface, in: Capsule())
-            }.buttonStyle(PressableStyle(scale: 0.98)).padding(.horizontal, 12).padding(.top, 4)
-        }
-    }
-
-    private var composer: some View {
-        VStack(spacing: 0) { pageChip; composerRow }
-    }
-
-    private var composerRow: some View {
+    private var bar: some View {
         HStack(spacing: 10) {
             Menu {
                 if hasPage { Button { showAgent = true } label: { Label("让 AI 操作这个网页", systemImage: "wand.and.stars") } }
-                if hasPage { Button { dismiss(); Task { await tab.translate() } } label: { Label("翻译这个页面", systemImage: "character.bubble") } }
-                Button { if let q = lastUserQuestion, let u = URLResolver.search(q, settings.engine) { openNew(u.absoluteString) } } label: { Label("用搜索引擎搜这个问题", systemImage: "magnifyingglass") }
-            } label: { Image(systemName: "plus.circle.fill").font(.system(size: 26)).foregroundStyle(theme.inkSoft.opacity(0.7)).frame(width: 36, height: 44) }
-            TextField(hasPage && usePage ? "问关于这个页面的问题，或任何问题" : "问问 AI，或说“打开…”", text: $input, axis: .vertical)
-                .lineLimit(1...4).focused($focus).submitLabel(.send).onSubmit { send(input) }
-                .padding(.horizontal, 16).padding(.vertical, 11).background(theme.surface, in: Capsule())
+                if hasPage { Button { close(); Task { await tab.translate() } } label: { Label("翻译这个页面", systemImage: "character.bubble") } }
+                if let q = model.messages.last(where: { $0.role == .user })?.text, let u = URLResolver.search(q, settings.engine) {
+                    Button { openNew(u.absoluteString) } label: { Label("用搜索引擎搜这个问题", systemImage: "magnifyingglass") }
+                }
+                if !model.messages.isEmpty { Button(role: .destructive) { model.reset() } label: { Label("新对话", systemImage: "square.and.pencil") } }
+            } label: { Image(systemName: "sparkles").font(.system(size: 18, weight: .semibold)).foregroundStyle(theme.accent).frame(width: 36, height: 44) }
+            TextField(hasPage ? "问 AI（会读这个页面），或说“打开…”" : "问 AI，或说“打开…”", text: $input)
+                .focused($focus).submitLabel(.send).onSubmit { send(input) }
+                .font(.system(size: 16, design: .rounded))
             Button { model.busy ? model.cancel() : send(input) } label: {
-                Image(systemName: model.busy ? "stop.fill" : "arrow.up").font(.system(size: 16, weight: .bold)).foregroundStyle(.white).frame(width: 44, height: 44).background(theme.accent, in: Circle())
+                Image(systemName: model.busy ? "stop.fill" : "arrow.up").font(.system(size: 15, weight: .bold)).foregroundStyle(.white)
+                    .frame(width: 34, height: 34).background(input.trimmingCharacters(in: .whitespaces).isEmpty && !model.busy ? theme.inkSoft.opacity(0.4) : theme.accent, in: Circle())
             }.disabled(!model.busy && input.trimmingCharacters(in: .whitespaces).isEmpty)
-        }.padding(.horizontal, 12).padding(.vertical, 8)
+        }
+        .padding(.leading, 8).padding(.trailing, 8).frame(height: 52)
+        .lunoGlass(Capsule())
     }
-
-    private var lastUserQuestion: String? { model.messages.last { $0.role == .user }?.text }
 
     // MARK: actions
 
+    private func close() { focus = false; onClose() }
     private func send(_ text: String) {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines); guard !t.isEmpty else { return }
         input = ""
-        model.send(text, usePage: usePage, tab: tab, store: store) { u in openHere(u.absoluteString) }
+        model.send(t, usePage: hasPage, tab: tab, store: store) { u in openHere(u.absoluteString) }
     }
     private func openHere(_ s: String) {
         guard let u = URL(string: s) else { return }
-        dismiss(); store.showSwitcher = false
+        close(); store.showSwitcher = false
         tab.navigate(u)
     }
     private func openNew(_ s: String) {
         guard let u = URL(string: s) else { return }
-        dismiss(); store.showSwitcher = false
+        close(); store.showSwitcher = false
         store.newTab(url: u, isPrivate: tab.isPrivate)
     }
 }
