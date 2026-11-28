@@ -86,7 +86,9 @@ func Start(host string, port int, auth string, obfsPassword string, sni string, 
 			ServerAddr:  addr,
 			Auth:        auth,
 			TLSConfig:   tc,
-			FastOpen:    true, // TCP() returns at once instead of waiting a round trip for the server's answer: every new connection of a page starts one RTT sooner
+			// No FastOpen: TCP() must wait for the server's answer, otherwise a dead QUIC connection (phone slept, network changed) is not noticed
+			// until its idle timeout and every page just times out. Detect a dead link quickly instead: keep-alives every 5s, give up after 15s.
+			QUICConfig: client.QUICConfig{KeepAlivePeriod: 5 * time.Second, MaxIdleTimeout: 15 * time.Second},
 		}
 		if downMbps > 0 {
 			cfg.BandwidthConfig = client.BandwidthConfig{MaxRx: uint64(downMbps) * 125000}
