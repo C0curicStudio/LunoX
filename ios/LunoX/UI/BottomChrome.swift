@@ -13,6 +13,7 @@ struct BottomChrome: View {
     var onTabs: () -> Void
     var onReader: () -> Void
     var onTranslate: () -> Void
+    var onAI: () -> Void
     @State private var reloadTick = 0
 
     var body: some View {
@@ -114,6 +115,7 @@ struct BottomChrome: View {
             bar("chevron.left", on: tab.canGoBack) { tab.goBack() }
             bar("chevron.right", on: tab.canGoForward) { tab.goForward() }
             bar("plus", on: true) { store.newTab(isPrivate: tab.isPrivate) }
+            bar("sparkles", on: true, tint: theme.accent) { onAI() }
             ZStack {
                 bar("square.on.square", on: true) { onTabs() }
                 Text("\(store.tabs.filter { $0.isPrivate == tab.isPrivate }.count)").contentTransition(.numericText())
@@ -125,10 +127,10 @@ struct BottomChrome: View {
         .lunoGlass(Capsule())
     }
 
-    private func bar(_ icon: String, on: Bool, action: @escaping () -> Void) -> some View {
+    private func bar(_ icon: String, on: Bool, tint: Color? = nil, action: @escaping () -> Void) -> some View {
         Button { Haptics.tap(); action() } label: {
             Image(systemName: icon).font(.system(size: 18, weight: .medium))
-                .foregroundStyle(on ? theme.ink : theme.inkSoft.opacity(0.4))
+                .foregroundStyle(on ? (tint ?? theme.ink) : theme.inkSoft.opacity(0.4))
                 .frame(maxWidth: .infinity, minHeight: 44).contentShape(Rectangle())
         }.buttonStyle(PressableStyle(scale: 0.88)).disabled(!on)
     }

@@ -164,6 +164,20 @@ final class TemplateTests: XCTestCase {
         let p = try? JSONSerialization.jsonObject(with: #"[{"type":"stream","url":"/watch?v=DxgDeW-gIcU","title":"T","uploaderName":"U","duration":125,"views":1500}]"#.data(using: .utf8)!)
         XCTAssertEqual(SiteParse.pipedItems(p).first?.id, "DxgDeW-gIcU"); XCTAssertEqual(SiteParse.pipedItems(p).first?.duration, "2:05")
     }
+    func testQuestionIntent() {
+        XCTAssertTrue(QuestionIntent.isQuestion("怎么给 SwiftUI 的 List 加下拉刷新"))
+        XCTAssertTrue(QuestionIntent.isQuestion("为什么天空是蓝色的"))
+        XCTAssertTrue(QuestionIntent.isQuestion("how do I center a div in css"))
+        XCTAssertTrue(QuestionIntent.isQuestion("法语的过去时怎么用？"))
+        XCTAssertTrue(QuestionIntent.isQuestion("打开 SwiftUI 官方文档"))
+        XCTAssertTrue(QuestionIntent.wantsNavigation("打开 SwiftUI 官方文档"))
+        XCTAssertFalse(QuestionIntent.isQuestion("swift 教程"))                   // keywords stay a search
+        XCTAssertFalse(QuestionIntent.isQuestion("youtube"))                      // site name: direct
+        XCTAssertFalse(QuestionIntent.isQuestion("example.com/path"))
+        XCTAssertFalse(QuestionIntent.isQuestion("iphone 17"))
+        XCTAssertTrue(QuestionIntent.refersToPage("总结一下这个页面"))
+        XCTAssertFalse(QuestionIntent.refersToPage("今天天气"))
+    }
     func testSmartSearch() {
         XCTAssertEqual(SmartSearch.resolve("youtube")?.url.host, "www.youtube.com")
         XCTAssertEqual(SmartSearch.resolve("YouTube")?.isSearch, false)

@@ -68,6 +68,7 @@ struct SearchOverlay: View {
     @State private var remote: [String] = []
     @State private var task: Task<Void, Never>?
     @State private var showAI = false
+    @State private var aiQuestion = ""
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -99,13 +100,16 @@ struct SearchOverlay: View {
         }
         .onAppear { text = tab.isBlank ? "" : (tab.url?.absoluteString ?? "") }
         .onChange(of: text) { _, v in queryRemote(v) }
-        .sheet(isPresented: $showAI) { AIPanel(tab: tab, initialQuestion: text, initialMode: .search).presentationDetents([.large]) }
+        .sheet(isPresented: $showAI) { AIAssistantView(tab: tab, initialQuestion: aiQuestion).presentationDetents([.medium, .large]).presentationDragIndicator(.visible) }
     }
 
     private var rows: [Suggestion] {
         let q = text.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty, q != tab.url?.absoluteString else { return recents }
         var out: [Suggestion] = []
+        if aiRoutes(q) {
+            out.append(Suggestion(kind: .ai, title: "问 AI：\(q)", subtitle: "联网搜索并回答 · 也可以直接带你去网站", value: q))
+        }
         let isURL = URLResolver.resolve(q, engine: settings.engine).map { $0.host != URLResolver.search(q, settings.engine)?.host } ?? false
         if !isURL, settings.prefs.smartDirect, let t = SmartSearch.resolve(q) {
             out.append(Suggestion(kind: .go, title: t.isSearch ? "在\(t.name)搜索「\(t.query)」" : "打开 \(t.name)", subtitle: "直达 · \(t.url.displayHost)", value: q))
@@ -121,7 +125,7 @@ struct SearchOverlay: View {
         out += store.history.filter { $0.title.lowercased().contains(lower) || $0.url.lowercased().contains(lower) }.prefix(3)
             .map { Suggestion(kind: .history, title: $0.title, subtitle: $0.url, value: $0.url) }
         out += remote.prefix(5).map { Suggestion(kind: .remote, title: $0, value: $0) }
-        if settings.prefs.aiEnabled && settings.gatewayConfigured && q.count > 1 { out.append(Suggestion(kind: .ai, title: "问 AI：\(q)", subtitle: "联网搜索并总结", value: q)) }
+        if !aiRoutes(q), settings.prefs.aiEnabled && settings.gatewayConfigured && q.count > 1 { out.append(Suggestion(kind: .ai, title: "问 AI：\(q)", subtitle: "联网搜索并总结", value: q)) }
         return out
     }
     private var recents: [Suggestion] {
@@ -144,10 +148,17 @@ struct SearchOverlay: View {
     }
 
     private func pick(_ r: Suggestion) {
-        if r.kind == .ai { showAI = true; return }
+        if r.kind == .ai { aiQuestion = r.value; showAI = true; return }
         go(r.value, smart: r.kind != .search)         // choosing the plain search row means "do not redirect"
     }
-    private func submit() { go(text) }
+    /// A clear question / request, and the assistant is available: it answers instead of a search engine.
+    private func aiRoutes(_ q: String) -> Bool {
+        settings.prefs.aiRouting && settings.prefs.aiEnabled && settings.gatewayConfigured && QuestionIntent.isQuestion(q)
+    }
+    private func submit() {
+        let q = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if aiRoutes(q) { aiQuestion = q; showAI = true } else { go(text) }
+    }
     private func go(_ s: String, smart: Bool = true) {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         store.open(s, smart: smart); close()

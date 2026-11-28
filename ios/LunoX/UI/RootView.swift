@@ -9,6 +9,7 @@ struct RootView: View {
     @State private var showMenu = false
     @State private var showSite = false
     @State private var showFind = false
+    @State private var showAssistant = false
     @State private var menuDetent: PresentationDetent = .medium
     @State private var showNews = false
     @State private var showStartEdit = false
@@ -39,7 +40,8 @@ struct RootView: View {
                     BottomChrome(tab: tab, ns: ns, searching: searching,
                                  onSearch: openSearch, onSite: { showSite = true }, onMenu: { showMenu = true }, onTabs: openSwitcher,
                                  onReader: { menuRoute = .reader; showMenu = true },
-                                 onTranslate: { if tab.translated { tab.showOriginal() } else { Task { await tab.translate() } } })
+                                 onTranslate: { if tab.translated { tab.showOriginal() } else { Task { await tab.translate() } } },
+                                 onAI: { Haptics.soft(); showAssistant = true })
                 }
             }
             .padding(.bottom, 2).zIndex(2)
@@ -64,6 +66,9 @@ struct RootView: View {
                      onOpen: { u in showNews = false; store.open(u.absoluteString) },
                      onSearch: { showNews = false; DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { openSearch() } },
                      onSettings: { showNews = false; DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { menuRoute = .settings; showMenu = true } })
+        }
+        .sheet(isPresented: $showAssistant) {
+            if let t = store.current { AIAssistantView(tab: t).presentationDetents([.medium, .large]).presentationDragIndicator(.visible).presentationBackgroundInteraction(.enabled(upThrough: .medium)) }
         }
         .sheet(isPresented: $showStartEdit) { StartPageEditor().presentationDetents([.large]).presentationDragIndicator(.visible) }
         .sheet(isPresented: $showMenu, onDismiss: { menuRoute = nil; menuDetent = .medium }) {

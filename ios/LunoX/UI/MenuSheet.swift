@@ -80,7 +80,7 @@ struct MenuSheet: View {
                 case .extensions: ExtensionsView()
                 case .themes: ThemesView()
                 case .settings: SettingsView()
-                case .ai: if let t = tab { AIPanel(tab: t, initialQuestion: "", initialMode: .summarize) }
+                case .ai: if let t = tab { AIAssistantView(tab: t) }
                 case .reader: if let t = tab { ReaderView(tab: t) }
                 case .network: NetworkSettings()
                 case .aiSettings: AISettings()
