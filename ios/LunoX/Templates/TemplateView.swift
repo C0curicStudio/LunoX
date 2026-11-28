@@ -125,7 +125,7 @@ struct TemplateView: View {
         if case .watch(let id) = route.kind {
             VStack(alignment: .leading, spacing: 12) {
                 HStack { Spacer(); webButton }
-                player(id).aspectRatio(16.0 / 9.0, contentMode: .fit).frame(maxWidth: .infinity)
+                player(id).frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .shadow(color: .black.opacity(0.12), radius: 14, y: 6)
                 if let d = detail {
@@ -138,7 +138,7 @@ struct TemplateView: View {
                         }
                         Spacer()
                     }
-                    if !d.desc.isEmpty {
+                    if !d.desc.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, d.desc.trimmingCharacters(in: .whitespacesAndNewlines) != "-" {
                         Text(d.desc).font(.system(size: 13, design: .rounded)).foregroundStyle(theme.inkSoft).lineLimit(expandDesc ? nil : 3)
                             .padding(12).frame(maxWidth: .infinity, alignment: .leading).background(theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                             .onTapGesture { Haptics.tap(); withAnimation(Motion.snappy) { expandDesc.toggle() } }
@@ -161,7 +161,7 @@ struct TemplateView: View {
 
     @ViewBuilder private func player(_ id: String) -> some View {
         switch route.platform {
-        case .youtube: YouTubeView(id: id, autoplay: true, controls: true, mute: false, dataStore: store.dataStore(isPrivate: tab.isPrivate)).id(id)
+        case .youtube: YouTubeView(id: id, autoplay: true, controls: true, mute: false, dataStore: store.dataStore(isPrivate: tab.isPrivate)).id(id).aspectRatio(16.0 / 9.0, contentMode: .fit)
         case .bilibili: BiliPlayer(bvid: id, dataStore: store.dataStore(isPrivate: tab.isPrivate)).id(id)
         case .x, .instagram: EmptyView()
         }
@@ -318,8 +318,20 @@ struct GridCard: View {
     }
 }
 
-/// Bilibili with the system player: the best quality the account allows, real full screen, pinch to fill, Picture in Picture.
-/// If the stream cannot be fetched it falls back to the embedded web player.
+/// The system player (controls, speed, AirPlay, Picture in Picture, pinch to fill) in SwiftUI.
+struct SystemPlayer: UIViewControllerRepresentable {
+    let player: AVPlayer?
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let c = AVPlayerViewController()
+        c.player = player; c.allowsPictureInPicturePlayback = true; c.videoGravity = .resizeAspect; c.updatesNowPlayingInfoCenter = false
+        c.view.backgroundColor = .black
+        return c
+    }
+    func updateUIViewController(_ c: AVPlayerViewController, context: Context) { if c.player !== player { c.player = player } }
+}
+
+/// Bilibili with the system player: the best quality the account allows, full screen with rotation, pinch to fill, Picture in Picture.
+/// The frame follows the video (vertical videos are tall, not a letterboxed strip). Falls back to the embedded web player.
 struct BiliPlayer: View {
     let bvid: String
     let dataStore: WKWebsiteDataStore
@@ -328,26 +340,45 @@ struct BiliPlayer: View {
     @State private var qualities: [(Int, String)] = []
     @State private var quality = 0
     @State private var fellBack = false
+    @State private var aspect: CGFloat = 16.0 / 9.0
+    @State private var full = false
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
             Color.black
-            if let player { VideoPlayer(player: player) }
+            if player != nil { SystemPlayer(player: full ? nil : player) }
             else if fellBack { EmbedPlayer(url: URL(string: "https://player.bilibili.com/player.html?bvid=\(bvid)&autoplay=1&high_quality=1&danmaku=0")!, dataStore: dataStore) }
             else { ProgressView().tint(.white).frame(maxWidth: .infinity, maxHeight: .infinity) }
-            if player != nil, qualities.count > 1 {
-                Menu {
-                    ForEach(qualities.indices, id: \.self) { i in Button(qualities[i].1) { Task { await load(qn: qualities[i].0) } } }
-                } label: {
-                    Text(label).font(.system(size: 11, weight: .bold, design: .rounded)).foregroundStyle(.white)
-                        .padding(.horizontal, 9).padding(.vertical, 5).background(.black.opacity(0.55), in: Capsule())
+            if player != nil {
+                HStack(spacing: 8) {
+                    if qualities.count > 1 {
+                        Menu {
+                            ForEach(qualities.indices, id: \.self) { i in Button(qualities[i].1) { Task { await load(qn: qualities[i].0) } } }
+                        } label: { chip { Text(label) } }
+                    }
+                    Button { Haptics.soft(); full = true } label: { chip { Image(systemName: "arrow.up.left.and.arrow.down.right") } }
                 }.padding(8)
             }
         }
+        .aspectRatio(aspect, contentMode: .fit)
+        .animation(Motion.smooth, value: aspect)
         .task { try? AVAudioSession.sharedInstance().setCategory(.playback); await load(qn: 120) }
         .onDisappear { player?.pause() }
+        .fullScreenCover(isPresented: $full) {
+            ZStack(alignment: .topLeading) {
+                Color.black.ignoresSafeArea()
+                SystemPlayer(player: full ? player : nil).ignoresSafeArea()
+                Button { full = false } label: {
+                    Image(systemName: "xmark").font(.system(size: 15, weight: .bold)).foregroundStyle(.white).frame(width: 40, height: 40).background(.black.opacity(0.5), in: Circle())
+                }.padding(16)
+            }
+        }
     }
 
+    private func chip<C: View>(@ViewBuilder _ c: () -> C) -> some View {
+        c().font(.system(size: 11, weight: .bold, design: .rounded)).foregroundStyle(.white)
+            .frame(minWidth: 30, minHeight: 28).padding(.horizontal, 6).background(.black.opacity(0.55), in: Capsule())
+    }
     private var label: String { qualities.first { $0.0 == quality }?.1.components(separatedBy: " ").last ?? "画质" }
 
     private func load(qn: Int) async {
@@ -362,6 +393,11 @@ struct BiliPlayer: View {
         if let t, t.isValid, t.seconds > 1 { await p.seek(to: t) }
         p.play()
         player = p; qualities = s.qualities; quality = s.quality
+        for _ in 0..<30 {                                   // shape the frame after the video once its size is known
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            let z = item.presentationSize
+            if z.width > 0, z.height > 0 { aspect = min(max(z.width / z.height, 0.66), 1.78); break }
+        }
     }
 }
 
