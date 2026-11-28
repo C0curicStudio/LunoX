@@ -77,6 +77,19 @@ enum Keychain {
 
 enum Pinning {
     static func normalize(_ s: String) -> String { s.lowercased().filter { $0.isHexDigit } }
+    /// SHA-256 of the server's leaf certificate (what the pairing link carries), for diagnostics.
+    static func fingerprint(trust: SecTrust) -> String? {
+        guard let chain = SecTrustCopyCertificateChain(trust) as? [SecCertificate], let leaf = chain.first else { return nil }
+        return SHA256.hash(data: SecCertificateCopyData(leaf) as Data).map { String(format: "%02x", $0) }.joined()
+    }
+    /// A readable account of why a TLS connection failed, including the system's own error code underneath.
+    static func detail(_ error: Error) -> String {
+        let e = error as NSError
+        var out = "\(e.localizedDescription)（\(e.domain) \(e.code)"
+        if let u = e.userInfo[NSUnderlyingErrorKey] as? NSError { out += "，底层 \(u.domain) \(u.code)" }
+        if let c = e.userInfo["_kCFStreamErrorCodeKey"] { out += "，流错误 \(c)" }
+        return out + "）"
+    }
     static func verify(trust: SecTrust, pin: String) -> Bool {
         let want = normalize(pin)
         guard want.count == 64,

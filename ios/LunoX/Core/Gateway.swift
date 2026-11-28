@@ -108,7 +108,7 @@ final class GatewayClient: NSObject, URLSessionDelegate {
             let (_, resp) = try await t.data(for: r)
             guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return (nil, "HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0)") }
             return (Int(Date().timeIntervalSince(t0) * 1000), nil)
-        } catch { return (nil, error.localizedDescription) }
+        } catch { return (nil, (pinReport.map { $0 + "\n" } ?? "") + Pinning.detail(error)) }
     }
 
     // Snapshot of config (read on main, used anywhere)
@@ -122,6 +122,7 @@ final class GatewayClient: NSObject, URLSessionDelegate {
         return Cfg(host: p.gatewayHost, port: p.gatewayPort, key: settings.gatewayKey, pin: p.gatewayPin, pinned: true)
     }
     private var pin: String = ""
+    var pinReport: String?
     private var pinHost: String = ""
 
     func urlSession(_ s: URLSession, didReceive ch: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
@@ -129,7 +130,9 @@ final class GatewayClient: NSObject, URLSessionDelegate {
             return completionHandler(.performDefaultHandling, nil)
         }
         guard !pinHost.isEmpty, ch.protectionSpace.host == pinHost else { return completionHandler(.performDefaultHandling, nil) }  // Cloudflare edge: normal validation
-        Pinning.verify(trust: trust, pin: pin) ? completionHandler(.useCredential, URLCredential(trust: trust)) : completionHandler(.cancelAuthenticationChallenge, nil)
+        if Pinning.verify(trust: trust, pin: pin) { completionHandler(.useCredential, URLCredential(trust: trust)); return }
+        pinReport = "证书指纹不一致：服务器出示 \((Pinning.fingerprint(trust: trust) ?? "?").prefix(16))…，配对时是 \(Pinning.normalize(pin).prefix(16))…"
+        completionHandler(.cancelAuthenticationChallenge, nil)
     }
 
     @MainActor
@@ -179,8 +182,7 @@ final class GatewayClient: NSObject, URLSessionDelegate {
                 total += Date().timeIntervalSince(t0) * 1000
                 if let ray = h.value(forHTTPHeaderField: "cf-ray"), let c = ray.split(separator: "-").last { colo = String(c) }
             } catch {
-                let e = error as NSError
-                return RouteResult(ms: nil, colo: nil, error: "\(e.localizedDescription)（\(e.domain) \(e.code)）")
+                return RouteResult(ms: nil, colo: nil, error: (d.report ?? "") + (d.report == nil ? "" : "\n") + Pinning.detail(error))
             }
         }
         return RouteResult(ms: total, colo: colo)
@@ -354,12 +356,19 @@ final class GatewayClient: NSObject, URLSessionDelegate {
 
 final class PinDelegate: NSObject, URLSessionDelegate {
     let pinHost: String, pin: String
+    private let lock = NSLock()
+    private var _report: String?
+    /// Set when the certificate did not match the pairing: what the server really presented versus what was paired.
+    var report: String? { lock.lock(); defer { lock.unlock() }; return _report }
     init(pinHost: String, pin: String) { self.pinHost = pinHost; self.pin = pin }
     func urlSession(_ s: URLSession, didReceive ch: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         guard ch.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust, let trust = ch.protectionSpace.serverTrust else {
             return completionHandler(.performDefaultHandling, nil)
         }
         guard !pinHost.isEmpty, ch.protectionSpace.host == pinHost else { return completionHandler(.performDefaultHandling, nil) }
-        Pinning.verify(trust: trust, pin: pin) ? completionHandler(.useCredential, URLCredential(trust: trust)) : completionHandler(.cancelAuthenticationChallenge, nil)
+        if Pinning.verify(trust: trust, pin: pin) { completionHandler(.useCredential, URLCredential(trust: trust)); return }
+        let got = Pinning.fingerprint(trust: trust) ?? "?"
+        lock.lock(); _report = "证书指纹不一致：服务器出示 \(got.prefix(16))…，配对时是 \(Pinning.normalize(pin).prefix(16))…"; lock.unlock()
+        completionHandler(.cancelAuthenticationChallenge, nil)
     }
 }
