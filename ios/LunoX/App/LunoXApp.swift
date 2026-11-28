@@ -6,7 +6,6 @@ struct LunoXApp: App {
     @StateObject private var store = BrowserStore()
     @StateObject private var lock = AppLock()
     @Environment(\.scenePhase) private var phase
-    @StateObject private var splash = SplashController()
 
     var body: some Scene {
         WindowGroup {
@@ -40,6 +39,7 @@ struct ThemedRoot: View {
     @EnvironmentObject var store: BrowserStore
     @Environment(\.colorScheme) private var system
     @Environment(\.scenePhase) private var phase
+    @StateObject private var splash = SplashController()
 
     private var effective: ColorScheme { settings.prefs.appearance.forced ?? system }
 
