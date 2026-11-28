@@ -101,7 +101,7 @@ final class Translator: ObservableObject {
     var allowAIFallback = false
     init(gateway: GatewayClient) { self.gateway = gateway }
 
-    /// Cached per (target, text): a sentence is translated once, ever. Misses go to Apple's on-device model in one deduplicated batch.
+    /// Cached per (target, text): a sentence is translated once, then reused. Misses go to Apple's on-device model in one deduplicated batch.
     func translate(_ texts: [String], source: String?, target: String, remember: Bool = true) async -> [String]? {
         let cache = TranslationCache.shared
         var out = texts
@@ -120,8 +120,6 @@ final class Translator: ObservableObject {
         return out
     }
 }
-}
-
 
 /// Translations are remembered on this phone only (never uploaded) for 30 days, so a page or headline seen before appears translated at once.
 @MainActor
