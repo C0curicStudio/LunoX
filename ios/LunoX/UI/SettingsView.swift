@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 
 // MARK: - Flat iOS settings (inset grouped lists, hairline separators, native push transitions)
 
