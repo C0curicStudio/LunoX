@@ -116,6 +116,26 @@ final class TemplateTests: XCTestCase {
         XCTAssertNil(k("https://www.youtube.com/@channel"))
         XCTAssertNil(k("https://example.com/watch?v=dQw4w9WgXcQ"))
     }
+    func testSocialRoutes() {
+        func r(_ s: String) -> TemplateRoute? { TemplateRoute.match(URL(string: s)!) }
+        XCTAssertEqual(r("https://x.com/NASA/status/1234567890")?.kind, .watch(id: "1234567890"))
+        XCTAssertEqual(r("https://x.com/home")?.kind, .feed(query: nil))
+        XCTAssertEqual(r("https://twitter.com/NASA")?.kind, .feed(query: "@NASA"))
+        XCTAssertEqual(r("https://x.com/search?q=swift")?.kind, .feed(query: "swift"))
+        XCTAssertNil(r("https://x.com/settings"))
+        XCTAssertEqual(r("https://www.instagram.com/")?.platform, .instagram)
+        XCTAssertEqual(r("https://www.instagram.com/nasa/")?.kind, .feed(query: "@nasa"))
+        XCTAssertEqual(r("https://www.instagram.com/p/ABC123/")?.kind, .feed(query: "帖子"))
+        XCTAssertNil(r("https://www.instagram.com/accounts/login/"))
+    }
+    func testSocialParse() {
+        let js = #"{"p":[{"id":"1","name":"A","handle":"@a","avatar":"https://x/a.jpg","text":"hi","images":["https://x/1.jpg","bad"],"poster":"","video":"","time":"2026-01-01T00:00:00.000Z","replies":"1","reposts":"2","likes":"3","url":"https://x.com/a/status/1"}],"login":false}"#.data(using: .utf8)!
+        let r = SocialLoader.parse(js)
+        XCTAssertEqual(r?.posts.count, 1); XCTAssertEqual(r?.posts.first?.images, ["https://x/1.jpg"]); XCTAssertEqual(r?.login, false)
+        let t = #"{"id_str":"9","text":"hello","user":{"name":"N","screen_name":"n","profile_image_url_https":"https://p/n.jpg"},"favorite_count":12000,"mediaDetails":[{"type":"video","media_url_https":"https://p/poster.jpg","video_info":{"variants":[{"content_type":"video/mp4","bitrate":256000,"url":"https://v/lo.mp4"},{"content_type":"video/mp4","bitrate":832000,"url":"https://v/hi.mp4"}]}}]}"#.data(using: .utf8)!
+        let p = SiteParse.syndicationTweet(t)
+        XCTAssertEqual(p?.video, "https://v/hi.mp4"); XCTAssertEqual(p?.handle, "@n"); XCTAssertEqual(p?.likes, "1.2万")
+    }
     func testYouTubeParse() {
         let html = #"<script>var ytInitialData = {"contents":[{"videoRenderer":{"videoId":"abcdefghijk","title":{"runs":[{"text":"Hello"}]},"lengthText":{"simpleText":"1:02"},"viewCountText":{"simpleText":"5 views"},"ownerText":{"runs":[{"text":"Me"}]}}}]};</script>"#
         let items = SiteParse.youtubeVideos(SiteParse.ytInitialData(html))

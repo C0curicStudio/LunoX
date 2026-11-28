@@ -102,6 +102,7 @@ struct TemplateView: View {
         switch route.platform {
         case .youtube: YouTubeView(id: id, autoplay: true, controls: true, mute: false, dataStore: store.dataStore(isPrivate: tab.isPrivate)).id(id)
         case .bilibili: EmbedPlayer(url: URL(string: "https://player.bilibili.com/player.html?bvid=\(id)&autoplay=1&high_quality=1&danmaku=0")!, dataStore: store.dataStore(isPrivate: tab.isPrivate)).id(id)
+        case .x, .instagram: EmptyView()
         }
     }
 

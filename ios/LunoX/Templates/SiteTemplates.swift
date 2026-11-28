@@ -5,10 +5,21 @@ import SwiftUI
 /// Adding a platform = one case in `SitePlatform`, one route matcher, one parser, one data call.
 
 enum SitePlatform: String, CaseIterable, Codable {
-    case youtube, bilibili
-    var name: String { self == .youtube ? "YouTube" : "哔哩哔哩" }
-    var icon: String { self == .youtube ? "play.rectangle.fill" : "tv.fill" }
-    var tint: Color { self == .youtube ? Color(red: 1, green: 0.2, blue: 0.2) : Color(red: 0.98, green: 0.45, blue: 0.62) }
+    case youtube, bilibili, x, instagram
+    var name: String { switch self { case .youtube: "YouTube"; case .bilibili: "哔哩哔哩"; case .x: "X"; case .instagram: "Instagram" } }
+    var icon: String { switch self { case .youtube: "play.rectangle.fill"; case .bilibili: "tv.fill"; case .x: "text.bubble.fill"; case .instagram: "camera.fill" } }
+    var tint: Color {
+        switch self {
+        case .youtube: Color(red: 1, green: 0.2, blue: 0.2)
+        case .bilibili: Color(red: 0.98, green: 0.45, blue: 0.62)
+        case .x: Color(red: 0.11, green: 0.61, blue: 0.94)
+        case .instagram: Color(red: 0.85, green: 0.25, blue: 0.55)
+        }
+    }
+    /// Feeds that need the user's own login: read from the signed-in page and rendered natively.
+    var isSocial: Bool { self == .x || self == .instagram }
+    var loginURL: URL { URL(string: self == .x ? "https://x.com/i/flow/login" : "https://www.instagram.com/accounts/login/")! }
+    static var video: [SitePlatform] { [.youtube, .bilibili] }
 }
 
 enum TemplateKind: Equatable {
@@ -40,16 +51,43 @@ struct TemplateRoute: Equatable {
             if host.hasPrefix("search"), let s = q("keyword"), !s.isEmpty { return .init(platform: .bilibili, kind: .feed(query: s), url: url) }
             if host == "www.bilibili.com" || host == "bilibili.com" || host == "m.bilibili.com", path == "" || path == "/" || path == "/v/popular/all" { return .init(platform: .bilibili, kind: .feed(query: nil), url: url) }
         }
+        if host == "x.com" || host == "www.x.com" || host == "twitter.com" || host == "www.twitter.com" || host == "mobile.twitter.com" {
+            let seg = path.split(separator: "/").map(String.init)
+            if seg.count >= 3, seg[1] == "status", seg[2].allSatisfy(\.isNumber) { return .init(platform: .x, kind: .watch(id: seg[2]), url: url) }
+            if seg.isEmpty || seg == ["home"] { return .init(platform: .x, kind: .feed(query: nil), url: url) }
+            if seg == ["search"], let s = q("q"), !s.isEmpty { return .init(platform: .x, kind: .feed(query: s), url: url) }
+            let reserved: Set<String> = ["home", "explore", "notifications", "messages", "i", "settings", "search", "compose", "login", "signup", "tos", "privacy", "hashtag", "intent", "share", "account", "jobs"]
+            if seg.count == 1, !reserved.contains(seg[0].lowercased()) { return .init(platform: .x, kind: .feed(query: "@" + seg[0]), url: url) }
+        }
+        if host == "instagram.com" || host == "www.instagram.com" {
+            let seg = path.split(separator: "/").map(String.init)
+            if seg.isEmpty { return .init(platform: .instagram, kind: .feed(query: nil), url: url) }
+            if seg.count >= 2, ["p", "reel", "tv"].contains(seg[0]) { return .init(platform: .instagram, kind: .feed(query: "帖子"), url: url) }
+            let reserved: Set<String> = ["explore", "accounts", "direct", "stories", "about", "reels", "p", "reel", "tv", "web", "api", "challenge", "legal", "developer"]
+            if seg.count == 1, !reserved.contains(seg[0].lowercased()) { return .init(platform: .instagram, kind: .feed(query: "@" + seg[0]), url: url) }
+        }
         return nil
     }
 
     static func search(_ platform: SitePlatform, _ q: String) -> TemplateRoute? {
         let e = q.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? q
-        let s = platform == .youtube ? "https://www.youtube.com/results?search_query=\(e)" : "https://search.bilibili.com/all?keyword=\(e)"
+        let s: String
+        switch platform {
+        case .youtube: s = "https://www.youtube.com/results?search_query=\(e)"
+        case .bilibili: s = "https://search.bilibili.com/all?keyword=\(e)"
+        case .x: s = "https://x.com/search?q=\(e)"
+        case .instagram: return nil
+        }
         return URL(string: s).flatMap { match($0) }
     }
     static func watch(_ platform: SitePlatform, _ id: String) -> TemplateRoute? {
-        let s = platform == .youtube ? "https://www.youtube.com/watch?v=\(id)" : "https://www.bilibili.com/video/\(id)"
+        let s: String
+        switch platform {
+        case .youtube: s = "https://www.youtube.com/watch?v=\(id)"
+        case .bilibili: s = "https://www.bilibili.com/video/\(id)"
+        case .x: s = "https://x.com/i/status/\(id)"
+        case .instagram: return nil
+        }
         return URL(string: s).flatMap { match($0) }
     }
 }
@@ -63,6 +101,23 @@ struct TItem: Identifiable, Equatable, Codable {
     var author: String
     var avatar: String?
     var meta: String               // "154,460 次观看 · 2 天前"
+}
+
+/// One post of a social feed (X, Instagram).
+struct TPost: Identifiable, Equatable, Codable {
+    var id: String
+    var name: String
+    var handle: String
+    var avatar: String
+    var text: String
+    var images: [String]
+    var poster: String
+    var video: String
+    var time: String
+    var replies: String
+    var reposts: String
+    var likes: String
+    var url: String
 }
 
 struct TDetail: Equatable, Codable {
@@ -188,6 +243,24 @@ enum SiteParse {
         return (TDetail(title: t, author: j["uploader"] as? String ?? "", avatar: https(j["uploaderAvatar"] as? String), meta: meta, desc: stripTags(j["description"] as? String ?? "")), pipedItems(j))
     }
 
+    static func syndicationTweet(_ data: Data) -> TPost? {
+        guard let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let id = j["id_str"] as? String, let text = j["text"] as? String else { return nil }
+        let u = j["user"] as? [String: Any] ?? [:]
+        var images = ((j["photos"] as? [[String: Any]]) ?? []).compactMap { $0["url"] as? String }
+        var poster = "", video = ""
+        for m in (j["mediaDetails"] as? [[String: Any]]) ?? [] where (m["type"] as? String) != "photo" {
+            poster = m["media_url_https"] as? String ?? ""
+            let vs = ((m["video_info"] as? [String: Any])?["variants"] as? [[String: Any]]) ?? []
+            video = vs.filter { ($0["content_type"] as? String) == "video/mp4" }.max { ($0["bitrate"] as? Int ?? 0) < ($1["bitrate"] as? Int ?? 0) }?["url"] as? String ?? ""
+        }
+        if images.isEmpty, poster.isEmpty { images = ((j["mediaDetails"] as? [[String: Any]]) ?? []).compactMap { $0["media_url_https"] as? String } }
+        let handle = u["screen_name"] as? String ?? ""
+        return TPost(id: id, name: u["name"] as? String ?? handle, handle: "@" + handle, avatar: u["profile_image_url_https"] as? String ?? "",
+                     text: text, images: images, poster: poster, video: video, time: j["created_at"] as? String ?? "",
+                     replies: count(j["conversation_count"] as? Int ?? 0), reposts: "", likes: count(j["favorite_count"] as? Int ?? 0),
+                     url: "https://x.com/\(handle)/status/\(id)")
+    }
+
     static func youtubeOEmbed(_ data: Data) -> TDetail? {
         guard let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let t = j["title"] as? String else { return nil }
         return TDetail(title: t, author: j["author_name"] as? String ?? "", avatar: nil, meta: "", desc: "")
@@ -223,7 +296,7 @@ final class TemplateService {
     func warmUp() {
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: 2_500_000_000)
-            for p in SitePlatform.allCases {
+            for p in SitePlatform.video {
                 if let c = TemplateCache.load(TemplateCache.feedKey(p, nil)), c.age < 600 { continue }
                 guard let items = await self?.feed(p, query: nil) else { continue }
                 for it in items.prefix(6) { if let t = it.thumb { _ = await ImageStore.shared.load(t) } }
@@ -273,6 +346,7 @@ final class TemplateService {
             let u = query.map { "https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=\(esc($0))" } ?? "https://api.bilibili.com/x/web-interface/popular?ps=30"
             guard let d = await get(u) else { return [] }
             return await Task.detached { SiteParse.bilibiliList(d) }.value
+        case .x, .instagram: return []
         }
     }
 
@@ -286,7 +360,14 @@ final class TemplateService {
         case .bilibili:
             guard let d = await get("https://api.bilibili.com/x/web-interface/view?bvid=\(id)"), let t = SiteParse.bilibiliDetail(d) else { return nil }
             return (t, [])
+        case .x, .instagram: return nil
         }
+    }
+
+    /// A single public post on X (text, photos, video) through X's own embed endpoint: works without signing in.
+    func tweet(id: String) async -> TPost? {
+        guard let d = await get("https://cdn.syndication.twimg.com/tweet-result?id=\(id)&token=a") else { return nil }
+        return await Task.detached { SiteParse.syndicationTweet(d) }.value
     }
 
     func related(_ platform: SitePlatform, id: String, title: String) async -> [TItem] {
@@ -297,6 +378,7 @@ final class TemplateService {
         case .bilibili:
             guard let d = await get("https://api.bilibili.com/x/web-interface/archive/related?bvid=\(id)") else { return [] }
             return await Task.detached { SiteParse.bilibiliList(d) }.value
+        case .x, .instagram: return []
         }
     }
 }

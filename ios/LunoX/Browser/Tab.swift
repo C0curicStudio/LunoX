@@ -50,6 +50,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
     @Published var translating = false
     @Published var translateDismissed = false
     @Published var template: TemplateRoute?     // set = a native page replaces the web view
+    var pendingNative = false                   // user went to sign in: switch to the native page once they are in
     var webMode = false                         // user chose "原网页": links stay on the web
     private var templateBack: [URL] = []
 
@@ -431,6 +432,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
     }
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         if let u = webView.url, u.scheme != "about" { url = u }
+        if pendingNative, store.settings.prefs.nativeTemplates, let u = webView.url, let r = TemplateRoute.match(u), r.platform.isSocial { pendingNative = false; navigate(u) }
         if loadingArchive { showingCachedCopy = true }
         translated = false; canTranslate = false; translateDismissed = false; pageLang = nil
         let site = store.settings.site(webView.url?.host)
