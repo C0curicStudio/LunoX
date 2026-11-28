@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 FW=Frameworks/Hy2bridge.xcframework
-if [ ! -d "$FW" ]; then echo "Hysteria2 core not built: building the app without it"; exit 0; fi
+if [ ! -d "$FW" ]; then echo "::warning title=Hysteria2::core was NOT built, the app is built without it"; echo "Hysteria2 core not built: building the app without it"; exit 0; fi
 BIN=$(ls "$FW"/ios-arm64/Hy2bridge.framework/Hy2bridge 2>/dev/null | head -1)
 if file "$BIN" | grep -q "ar archive"; then EMBED=false; else EMBED=true; fi   # static archive -> link only; dynamic -> must be embedded
 echo "Hy2bridge: embed=$EMBED ($(file "$BIN" | cut -d: -f2 | cut -c1-60))"
