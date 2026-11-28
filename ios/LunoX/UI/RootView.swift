@@ -114,7 +114,8 @@ struct TabContent: View {
     @ObservedObject var tab: Tab
     @EnvironmentObject var store: BrowserStore
     var body: some View {
-        if tab.isBlank { NewTabView() } else { WebContainer(tab: tab) }
+        if let r = tab.template { TemplateView(tab: tab, route: r).id(r.url) }
+        else if tab.isBlank { NewTabView() } else { WebContainer(tab: tab) }
     }
 }
 

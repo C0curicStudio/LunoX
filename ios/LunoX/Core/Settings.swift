@@ -26,6 +26,8 @@ struct Prefs: Codable, Equatable {
     var startHidden: [String] = ["closed"]
     var startBackground = ""          // "" = plain (default)
     var newsAutoplay = true
+    var nativeTemplates = true        // YouTube / Bilibili … open as native pages
+    var compactBar = false            // keep the bottom bar small until tapped
     var useHy2 = true
     var blockAppPrompts = true
     var blockForcedLogin = true

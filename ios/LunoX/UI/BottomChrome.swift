@@ -26,6 +26,10 @@ struct BottomChrome: View {
         .padding(.horizontal, collapsed ? 80 : 16)
         .padding(.bottom, 6)
         .opacity(searching ? 0 : 1).scaleEffect(searching ? 0.96 : 1, anchor: .bottom)
+        .gesture(DragGesture(minimumDistance: 10).onEnded { g in
+            guard abs(g.translation.height) > abs(g.translation.width), abs(g.translation.height) > 14 else { return }
+            Haptics.tap(); store.setBars(collapsed: g.translation.height > 0, force: true)
+        })
         .animation(Motion.bouncy, value: collapsed)
         .animation(Motion.snappy, value: tab.canTranslate)
         .animation(Motion.snappy, value: tab.readable)
@@ -35,7 +39,7 @@ struct BottomChrome: View {
     private func omnibox(collapsed: Bool) -> some View {
         ZStack {
             // the whole capsule is a single tap target; the small buttons sit on top of it
-            Button { Haptics.soft(); if collapsed { store.setBars(collapsed: false) } else { onSearch() } } label: {
+            Button { Haptics.soft(); if collapsed { store.setBars(collapsed: false, force: true) } else { onSearch() } } label: {
                 Color.clear.contentShape(Capsule())
             }.buttonStyle(.plain)
 

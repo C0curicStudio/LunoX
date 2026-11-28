@@ -103,3 +103,41 @@ final class LanguageTests: XCTestCase {
         XCTAssertTrue(LanguageUtil.supported.contains { $0.code == LanguageUtil.systemTarget() })
     }
 }
+
+final class TemplateTests: XCTestCase {
+    func testRoutes() {
+        func k(_ s: String) -> TemplateKind? { TemplateRoute.match(URL(string: s)!)?.kind }
+        XCTAssertEqual(k("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), .watch(id: "dQw4w9WgXcQ"))
+        XCTAssertEqual(k("https://youtu.be/dQw4w9WgXcQ"), .watch(id: "dQw4w9WgXcQ"))
+        XCTAssertEqual(k("https://m.youtube.com/results?search_query=swift"), .feed(query: "swift"))
+        XCTAssertEqual(k("https://youtube.com"), .feed(query: nil))
+        XCTAssertEqual(k("https://www.bilibili.com/video/BV1nz4y1N7NZ/"), .watch(id: "BV1nz4y1N7NZ"))
+        XCTAssertEqual(k("https://search.bilibili.com/all?keyword=swift"), .feed(query: "swift"))
+        XCTAssertNil(k("https://www.youtube.com/@channel"))
+        XCTAssertNil(k("https://example.com/watch?v=dQw4w9WgXcQ"))
+    }
+    func testYouTubeParse() {
+        let html = #"<script>var ytInitialData = {"contents":[{"videoRenderer":{"videoId":"abcdefghijk","title":{"runs":[{"text":"Hello"}]},"lengthText":{"simpleText":"1:02"},"viewCountText":{"simpleText":"5 views"},"ownerText":{"runs":[{"text":"Me"}]}}}]};</script>"#
+        let items = SiteParse.youtubeVideos(SiteParse.ytInitialData(html))
+        XCTAssertEqual(items.count, 1); XCTAssertEqual(items[0].title, "Hello"); XCTAssertEqual(items[0].duration, "1:02"); XCTAssertEqual(items[0].author, "Me")
+    }
+    func testBilibiliAndPipedParse() {
+        let b = #"{"code":0,"data":{"result":[{"bvid":"BV1","title":"<em class=\"keyword\">swift</em> 入门","pic":"//i0.hdslb.com/a.jpg","author":"A","duration":"3:20","play":12345,"danmaku":7}]}}"#.data(using: .utf8)!
+        let bi = SiteParse.bilibiliList(b)
+        XCTAssertEqual(bi.first?.title, "swift 入门"); XCTAssertEqual(bi.first?.thumb, "https://i0.hdslb.com/a.jpg"); XCTAssertTrue(bi.first?.meta.contains("1.2万") == true)
+        let p = try? JSONSerialization.jsonObject(with: #"[{"type":"stream","url":"/watch?v=DxgDeW-gIcU","title":"T","uploaderName":"U","duration":125,"views":1500}]"#.data(using: .utf8)!)
+        XCTAssertEqual(SiteParse.pipedItems(p).first?.id, "DxgDeW-gIcU"); XCTAssertEqual(SiteParse.pipedItems(p).first?.duration, "2:05")
+    }
+    func testPrefsSurviveNewKeys() {
+        struct Old: Codable { var a = 1 }
+        struct New: Codable { var a = 1; var b = 9 }
+        let d = try! JSONEncoder().encode(Old(a: 5))
+        let f = FileManager.default.temporaryDirectory.appendingPathComponent("prefs-test-\(UUID().uuidString)")
+        try! d.write(to: f)
+        let base = (try! JSONSerialization.jsonObject(with: JSONEncoder().encode(New()))) as! [String: Any]
+        let old = (try! JSONSerialization.jsonObject(with: Data(contentsOf: f))) as! [String: Any]
+        let merged = try! JSONSerialization.data(withJSONObject: base.merging(old) { _, s in s })
+        let v = try! JSONDecoder().decode(New.self, from: merged)
+        XCTAssertEqual(v.a, 5); XCTAssertEqual(v.b, 9)
+    }
+}

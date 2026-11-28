@@ -238,27 +238,29 @@ final class NewsEngine {
     private let settings: Settings
     init(gateway: GatewayClient, router: Router, settings: Settings) { self.gateway = gateway; self.router = router; self.settings = settings }
 
-    private nonisolated static func direct(_ url: URL, timeout: TimeInterval = 7) async -> Data? {
+    private nonisolated static func direct(_ url: URL, timeout: TimeInterval = 7, userAgent: String? = nil, headers: [String: String] = [:]) async -> Data? {
         let c = URLSessionConfiguration.ephemeral; c.connectionProxyDictionary = [:]; c.timeoutIntervalForRequest = timeout; c.timeoutIntervalForResource = timeout + 2; c.waitsForConnectivity = false
         let s = URLSession(configuration: c); defer { s.finishTasksAndInvalidate() }
         var r = URLRequest(url: url)
         r.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
         r.setValue("application/rss+xml, application/atom+xml, application/json, text/xml, */*", forHTTPHeaderField: "Accept")
+        if let userAgent { r.setValue(userAgent, forHTTPHeaderField: "User-Agent") }
+        for (k, v) in headers { r.setValue(v, forHTTPHeaderField: k) }
         guard let (d, resp) = try? await s.data(for: r), (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return d
     }
 
     /// Direct first; if it has not answered within 2.5s (or the domain is known to be blocked) the server relay is used too. First good answer wins.
-    func data(_ url: URL) async -> Data? {
+    func data(_ url: URL, userAgent: String? = nil, headers: [String: String] = [:], maxBytes: Int = 3_000_000) async -> Data? {
         let paired = settings.gatewayConfigured
-        if paired, router.cachedRoute(for: url) == .proxy { return (try? await gateway.fetch(url, maxBytes: 3_000_000))?.0 }
+        if paired, router.cachedRoute(for: url) == .proxy { return (try? await gateway.fetch(url, maxBytes: maxBytes))?.0 }
         return await withTaskGroup(of: Data?.self) { g in
-            g.addTask { await Self.direct(url) }
+            g.addTask { await Self.direct(url, userAgent: userAgent, headers: headers) }
             if paired {
                 g.addTask { [gateway] in
                     try? await Task.sleep(nanoseconds: 2_500_000_000)
                     if Task.isCancelled { return nil }
-                    return (try? await gateway.fetch(url, maxBytes: 3_000_000))?.0
+                    return (try? await gateway.fetch(url, maxBytes: maxBytes))?.0
                 }
             }
             for await d in g { if let d { g.cancelAll(); return d } }

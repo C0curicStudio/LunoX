@@ -75,7 +75,7 @@ struct YouTubeView: UIViewRepresentable {
         let w = WKWebView(frame: .zero, configuration: cfg)
         w.isOpaque = false; w.backgroundColor = .black; w.scrollView.backgroundColor = .black
         w.scrollView.isScrollEnabled = false; w.scrollView.pinchGestureRecognizer?.isEnabled = false
-        let q = "autoplay=\(autoplay ? 1 : 0)&mute=\(mute ? 1 : 0)&playsinline=1&controls=\(controls ? 1 : 0)&loop=1&playlist=\(id)&modestbranding=1&rel=0&iv_load_policy=3&fs=0"
+        let q = "autoplay=\(autoplay ? 1 : 0)&mute=\(mute ? 1 : 0)&playsinline=1&controls=\(controls ? 1 : 0)&loop=1&playlist=\(id)&modestbranding=1&rel=0&iv_load_policy=3&fs=\(controls ? 1 : 0)"
         let html = """
         <html><head><meta name=viewport content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"></head>
         <body style="margin:0;background:#000"><iframe style="position:fixed;inset:0;width:100%;height:100%;border:0"

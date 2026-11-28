@@ -30,8 +30,14 @@ struct JSONFile<T: Codable> {
     let url: URL
     init(_ name: String) { url = Paths.support.appendingPathComponent(name) }
     func load(_ fallback: T) -> T {
-        guard let d = try? Data(contentsOf: url), let v = try? JSONDecoder().decode(T.self, from: d) else { return fallback }
-        return v
+        guard let d = try? Data(contentsOf: url) else { return fallback }
+        if let v = try? JSONDecoder().decode(T.self, from: d) { return v }
+        // The file was written by an older build and lacks newer keys: keep what it has, default the rest (never wipe settings on update).
+        if let base = (try? JSONEncoder().encode(fallback)).flatMap({ try? JSONSerialization.jsonObject(with: $0) }) as? [String: Any],
+           let old = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any],
+           let merged = try? JSONSerialization.data(withJSONObject: base.merging(old) { _, stored in stored }),
+           let v = try? JSONDecoder().decode(T.self, from: merged) { return v }
+        return fallback
     }
     func save(_ v: T) {
         let u = url

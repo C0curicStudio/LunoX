@@ -105,6 +105,11 @@ struct GeneralSettings: View {
                 Toggle(isOn: $settings.prefs.restoreTabs) { RowLabel(icon: "arrow.counterclockwise", title: "启动时恢复标签页") }
                 Toggle(isOn: $settings.prefs.defaultDesktop) { RowLabel(icon: "desktopcomputer", title: "默认请求桌面版网站") }
             }.sectionStyle(theme.surface)
+            Section {
+                Toggle(isOn: $settings.prefs.nativeTemplates) { RowLabel(icon: "rectangle.stack.badge.play", title: "视频网站原生模板（YouTube、哔哩哔哩）") }
+                Toggle(isOn: $settings.prefs.compactBar) { RowLabel(icon: "arrow.down.right.and.arrow.up.left", title: "始终使用精简底部栏") }
+            } header: { Text("界面").textCase(nil) }
+            footer: { Text("原生模板直接请求视频数据并用系统界面渲染，不加载网页，打开更快；页面右上角“原网页”可随时切回网页。底部栏可向下滑缩小、点一下展开。") }.sectionStyle(theme.surface)
         }
     }
 }

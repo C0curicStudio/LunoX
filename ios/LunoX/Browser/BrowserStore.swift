@@ -18,6 +18,7 @@ final class BrowserStore: ObservableObject {
     let hy2 = Hy2Manager()
     let news: NewsStore
     @Published var newsRequest = 0
+    private(set) lazy var templates = TemplateService(engine: NewsEngine(gateway: gateway, router: router, settings: settings))
     @Published var startEditRequest = 0
     let offline = OfflineCache()
     let downloads = DownloadManager()
@@ -120,7 +121,7 @@ final class BrowserStore: ObservableObject {
         selectedID = t.id
         recency.removeAll { $0 == t.id }; recency.append(t.id)
         barsCollapsed = false
-        t.ensureWebView()
+        if t.template == nil { t.ensureWebView() }
         // Keep the 6 most recent web views alive, park the rest (like Chrome's tab discarding).
         let keep = Set(recency.suffix(6))
         for o in tabs where !keep.contains(o.id) { o.suspend() }
@@ -153,8 +154,9 @@ final class BrowserStore: ObservableObject {
         persistSoon()
     }
 
-    func setBars(collapsed: Bool) {
+    func setBars(collapsed: Bool, force: Bool = false) {
         guard barsCollapsed != collapsed else { return }
+        if !collapsed, settings.prefs.compactBar, !force { return }      // "always compact": only a tap on the pill opens it
         withAnimation(.spring(response: 0.38, dampingFraction: 0.86)) { barsCollapsed = collapsed }
         current?.syncInset()
     }
@@ -280,6 +282,7 @@ final class BrowserStore: ObservableObject {
             for st in s.tabs {
                 let t = Tab(store: self, id: st.id, isPrivate: false, url: st.url, title: st.title)
                 t.restoreState = st.state; t.group = st.group
+                if settings.prefs.nativeTemplates, let u = st.url, let r = TemplateRoute.match(u) { t.template = r; t.restoreState = nil }
                 tabs.append(t)
             }
             if let sel = tabs.first(where: { $0.id == s.selected }) ?? tabs.last { selectTab(sel) }

@@ -49,6 +49,9 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
     @Published var translated = false
     @Published var translating = false
     @Published var translateDismissed = false
+    @Published var template: TemplateRoute?     // set = a native page replaces the web view
+    var webMode = false                         // user chose "原网页": links stay on the web
+    private var templateBack: [URL] = []
 
     private(set) var webView: WKWebView?
     var restoreState: Data?
@@ -176,7 +179,18 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
 
     /// Starts loading immediately. Reachability is checked in the background and only changes the route
     /// (and reloads once) if the site turns out to be blocked or much faster through the server.
-    func navigate(_ url: URL) {
+    func navigate(_ url: URL, forceWeb: Bool = false, pushing: Bool = true) {
+        if !forceWeb, store.settings.prefs.nativeTemplates, let r = TemplateRoute.match(url) {
+            if pushing, let cur = self.url, cur != url { templateBack.append(cur) }
+            webMode = false; template = r; self.url = url
+            isLoading = false; progress = 0; stuck = false; note = nil; readable = false; canTranslate = false; translated = false; fixedBottom = 0
+            secure = true; title = r.platform.name; favicon = url.host.flatMap { store.icon(for: $0) }
+            canGoBack = !templateBack.isEmpty || webView?.url != nil; canGoForward = false
+            store.setBars(collapsed: false)
+            if !isPrivate { store.recordVisit(url: url, title: r.platform.name) }
+            return
+        }
+        template = nil; templateBack = []; webMode = forceWeb
         self.url = url
         let wv = ensureWebView()
         showingCachedCopy = false
@@ -201,8 +215,19 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         wv.load(URLRequest(url: url))
     }
 
-    func goBack() { webView?.goBack() }
+    func goBack() {
+        if template != nil {
+            if let u = templateBack.popLast() { navigate(u, pushing: false); canGoBack = !templateBack.isEmpty || webView?.url != nil }
+            else if let wv = webView, wv.url != nil { template = nil; url = wv.url; canGoBack = wv.canGoBack; canGoForward = wv.canGoForward }
+            return
+        }
+        webView?.goBack()
+    }
     func goForward() { webView?.goForward() }
+    func templateReady(thumb: String?) {
+        guard let thumb else { return }
+        Task { [weak self] in if let img = await ImageStore.shared.load(thumb) { self?.thumbnail = img; self?.hero = img } }
+    }
     func reload() { if webView?.url == nil, let u = url { navigate(u) } else { webView?.reloadFromOrigin() } }
     func stop() { webView?.stopLoading() }
     @objc private func pulled() { reload() }
@@ -375,6 +400,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         let isMain = action.targetFrame?.isMainFrame ?? true
         guard isMain else { return (.allow, preferences) }
 
+        if action.navigationType == .linkActivated, !webMode, store.settings.prefs.nativeTemplates, TemplateRoute.match(url) != nil { navigate(url); return (.cancel, preferences) }
         let host = url.host ?? ""
         let local = host == "localhost" || host.hasSuffix(".local") || host.range(of: #"^[\d.]+$"#, options: .regularExpression) != nil
         if scheme == "http", store.settings.prefs.httpsOnly, !local, !allowInsecure.contains(host) {
