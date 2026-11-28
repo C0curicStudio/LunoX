@@ -1,6 +1,12 @@
 import Foundation
 import SwiftUI
 
+enum RouteMode: String, Codable, CaseIterable, Identifiable {
+    case direct, proxy, auto
+    var id: String { rawValue }
+    var title: String { switch self { case .direct: "直连"; case .proxy: "代理"; case .auto: "自动" } }
+}
+
 enum RoutingMode: String, Codable, CaseIterable, Identifiable {
     case auto, direct, proxy
     var id: String { rawValue }
@@ -47,6 +53,8 @@ struct Prefs: Codable, Equatable {
     var edgeHost = ""
     var edgePort = 8443
     var forcedProxyDomains: [String] = []
+    var groupModes: [String: String] = [:]          // policy group id -> "direct" | "proxy" | "auto" (absent = the group default)
+    var groupDomains: [String: [String]] = [:]      // domains the user added to a policy group
 }
 
 @MainActor

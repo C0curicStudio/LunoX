@@ -38,23 +38,67 @@ final class Router: ObservableObject {
         "netflix.com": ["nflxvideo.net", "nflximg.net", "nflxext.com"],
     ]
 
-    /// Sites inside the country are never sent through the overseas server: slower, and their firewalls (Cloudflare, WAF) block datacenter addresses.
-    static let domestic: Set<String> = [
-        "baidu.com", "bdstatic.com", "qq.com", "weixin.com", "wechat.com", "gtimg.com", "qpic.cn", "zhihu.com", "zhimg.com", "taobao.com", "tmall.com", "alipay.com", "alicdn.com", "aliyun.com",
-        "jd.com", "360buyimg.com", "douyin.com", "douyinpic.com", "toutiao.com", "bytedance.com", "byteimg.com", "xiaohongshu.com", "xhscdn.com", "163.com", "126.net", "netease.com",
-        "sina.com.cn", "weibo.com", "sinaimg.cn", "bilibili.com", "hdslb.com", "bilivideo.com", "b23.tv", "acfun.cn", "iqiyi.com", "youku.com", "mgtv.com", "kuaishou.com", "ixigua.com",
-        "kimi.ai", "kimi.com", "moonshot.cn", "deepseek.com", "doubao.com", "volcengine.com", "zhipuai.cn", "bigmodel.cn", "aliyuncs.com", "tencent.com", "tencentcloud.com", "huawei.com",
-        "meituan.com", "dianping.com", "ctrip.com", "12306.cn", "gov.cn", "csdn.net", "cnblogs.com", "juejin.cn", "36kr.com", "xiaomi.com", "mi.com", "oppo.com", "vivo.com",
+    // MARK: policy groups (like a proxy app's strategy groups)
+
+    struct PolicyGroup: Identifiable {
+        let id: String
+        let name: String
+        let note: String
+        let icon: String
+        let defaultMode: RouteMode
+        let domains: [String]
+    }
+
+    /// Order matters only for display; a domain belongs to the first group that lists it.
+    /// Principle: a site should always be seen from the same place. Domestic and payment/login sites are never sent through the overseas server
+    /// (their risk systems flag datacenter addresses and address changes); blocked foreign sites always use the server (one fixed exit address).
+    static let groups: [PolicyGroup] = [
+        PolicyGroup(id: "cn", name: "国内平台", note: "永远直连：国内网站用国外出口容易被风控", icon: "house", defaultMode: .direct, domains: [
+            "baidu.com", "bdstatic.com", "qq.com", "weixin.com", "wechat.com", "gtimg.com", "qpic.cn", "zhihu.com", "zhimg.com", "taobao.com", "tmall.com", "alipay.com", "alicdn.com", "aliyun.com",
+            "jd.com", "360buyimg.com", "douyin.com", "douyinpic.com", "toutiao.com", "bytedance.com", "byteimg.com", "xiaohongshu.com", "xhscdn.com", "163.com", "126.net", "netease.com",
+            "weibo.com", "sinaimg.cn", "bilibili.com", "hdslb.com", "bilivideo.com", "b23.tv", "iqiyi.com", "youku.com", "mgtv.com", "kuaishou.com", "ixigua.com",
+            "kimi.ai", "kimi.com", "moonshot.cn", "deepseek.com", "doubao.com", "volcengine.com", "bigmodel.cn", "aliyuncs.com", "tencent.com", "tencentcloud.com", "huawei.com",
+            "meituan.com", "dianping.com", "ctrip.com", "csdn.net", "cnblogs.com", "juejin.cn", "36kr.com", "xiaomi.com", "mi.com", "oppo.com", "vivo.com", "sohu.com", "ifeng.com", "douban.com"]),
+        PolicyGroup(id: "pay", name: "账号与支付", note: "登录、支付对 IP 变化最敏感：一律直连", icon: "creditcard", defaultMode: .direct, domains: [
+            "unionpay.com", "icbc.com.cn", "ccb.com", "boc.cn", "abchina.com", "cmbchina.com", "bankcomm.com", "paypal.com", "stripe.com", "wise.com",
+            "apple.com", "icloud.com", "microsoft.com", "live.com", "office.com", "microsoftonline.com", "windows.net"]),
+        PolicyGroup(id: "open", name: "国外可直连", note: "国外但国内能访问：直连更快也更稳", icon: "globe.asia.australia", defaultMode: .direct, domains: [
+            "amazon.com", "cloudflare.com", "jsdelivr.net", "unpkg.com", "npmjs.com", "pypi.org", "python.org", "mozilla.org", "nvidia.com", "adobe.com",
+            "stackoverflow.com", "stackexchange.com", "docker.com", "gitlab.com", "swift.org", "steampowered.com", "gravatar.com", "w3.org"]),
+        PolicyGroup(id: "social", name: "国外社交与视频", note: "被墙：固定走你的服务器（同一个出口地址）", icon: "play.rectangle", defaultMode: .proxy, domains: [
+            "youtube.com", "googlevideo.com", "ytimg.com", "youtube-nocookie.com", "youtu.be", "facebook.com", "fbcdn.net", "fb.com", "facebook.net", "instagram.com", "cdninstagram.com",
+            "twitter.com", "twimg.com", "t.co", "x.com", "telegram.org", "t.me", "telegram.me", "discord.com", "discord.gg", "discordapp.com", "reddit.com", "redd.it", "redditstatic.com", "redditmedia.com",
+            "tiktok.com", "twitch.tv", "netflix.com", "nflxvideo.net", "spotify.com", "pinterest.com", "linkedin.com", "whatsapp.com", "snapchat.com", "threads.net", "medium.com", "quora.com",
+            "wikipedia.org", "wikimedia.org", "blogspot.com", "line.me"]),
+        PolicyGroup(id: "ai", name: "海外 AI", note: "被墙且对出口地址敏感：固定走服务器，不要和直连来回切换", icon: "sparkles", defaultMode: .proxy, domains: [
+            "openai.com", "chatgpt.com", "oaistatic.com", "oaiusercontent.com", "anthropic.com", "claude.ai", "perplexity.ai", "x.ai", "grok.com", "huggingface.co", "midjourney.com", "poe.com", "character.ai"]),
+        PolicyGroup(id: "google", name: "Google 服务", note: "被墙：走服务器", icon: "magnifyingglass", defaultMode: .proxy, domains: [
+            "google.com", "gstatic.com", "googleapis.com", "googleusercontent.com", "ggpht.com", "gvt1.com", "google.com.hk", "android.com", "chrome.com", "blogger.com", "withgoogle.com", "goog"]),
+        PolicyGroup(id: "dev", name: "开发者站点", note: "有时慢：自动判断（先直连，不通再走服务器）", icon: "chevron.left.forwardslash.chevron.right", defaultMode: .auto, domains: [
+            "github.com", "githubassets.com", "githubusercontent.com", "github.io", "stackblitz.com", "vercel.app", "netlify.app", "readthedocs.io"]),
     ]
+
+    func mode(of g: PolicyGroup) -> RouteMode { settings.prefs.groupModes[g.id].flatMap(RouteMode.init(rawValue:)) ?? g.defaultMode }
+    func domains(of g: PolicyGroup) -> [String] { g.domains + (settings.prefs.groupDomains[g.id] ?? []) }
+
+    /// The group that decides this site: domains the user added win over the built-in lists.
+    func group(for dom: String, host: String) -> PolicyGroup? {
+        for g in Router.groups where (settings.prefs.groupDomains[g.id] ?? []).contains(where: { URLResolver.registrableDomain($0) == dom }) { return g }
+        for g in Router.groups where g.domains.contains(where: { URLResolver.registrableDomain($0) == dom }) { return g }
+        if host.hasSuffix(".cn") || host.hasSuffix(".com.cn") || host.hasSuffix(".gov.cn") { return Router.groups.first { $0.id == "cn" } }
+        return nil
+    }
+    /// .direct / .proxy when a group decides, nil = decide automatically.
+    func policyMode(_ dom: String, host: String) -> RouteMode? {
+        if let d = direct[dom], Date().timeIntervalSince(d) < 7 * 86_400 { return .direct }      // learned: it blocked the proxy exit
+        guard let g = group(for: dom, host: host) else { return nil }
+        let m = mode(of: g)
+        return m == .auto ? nil : m
+    }
+
     /// Sites that blocked the proxy exit address and answered fine directly (learned, kept for 7 days).
     @Published private(set) var direct: [String: Date] = [:]
     private let directFile = JSONFile<[String: Date]>("direct-sites.json")
-
-    func isDomestic(_ dom: String, host: String) -> Bool {
-        if Router.domestic.contains(dom) || host.hasSuffix(".cn") || host.hasSuffix(".com.cn") { return true }
-        if let d = direct[dom], Date().timeIntervalSince(d) < 7 * 86_400 { return true }
-        return false
-    }
 
     /// A proxied page came back as a firewall block page: if the site is reachable directly, go direct from now on.
     func markDirect(_ dom: String) {
@@ -66,7 +110,7 @@ final class Router: ObservableObject {
         self.settings = settings
         direct = directFile.load([:]).filter { Date().timeIntervalSince($0.value) < 7 * 86_400 }
         // Remember recently-blocked domains for 6h so cold starts don't wait for a probe.
-        let saved = file.load([:]).filter { Date().timeIntervalSince($0.value) < 6 * 3600 }
+        let saved = file.load([:]).filter { Date().timeIntervalSince($0.value) < 24 * 3600 }      // a site keeps the same route for a day (changing address back and forth triggers risk control)
         proxied = saved
     }
 
@@ -85,9 +129,9 @@ final class Router: ObservableObject {
         }
         guard settings.gatewayConfigured || hy2?.running == true else { return .direct }
         if isForced(dom) || settings.site(host).forceProxy { return .proxy }
-        if isDomestic(dom, host: host) { return .direct }
+        if let m = policyMode(dom, host: host) { return m == .proxy ? .proxy : .direct }
         if proxied[dom] != nil { return .proxy }
-        if let v = verdicts[dom], Date().timeIntervalSince(v.at) < 600, v.ok { return .direct }
+        if let v = verdicts[dom], Date().timeIntervalSince(v.at) < 6 * 3600, v.ok { return .direct }
         return nil
     }
 
@@ -107,9 +151,9 @@ final class Router: ObservableObject {
         }
         guard settings.gatewayConfigured || hy2?.running == true else { return .direct }
         if isForced(dom) || settings.site(host).forceProxy { apply(); return .proxy }
-        if isDomestic(dom, host: host) { return .direct }
+        if let m = policyMode(dom, host: host) { return m == .proxy ? .proxy : .direct }
         if proxied[dom] != nil { apply(); return .proxy }
-        if let v = verdicts[dom], Date().timeIntervalSince(v.at) < 600, v.ok { return .direct }
+        if let v = verdicts[dom], Date().timeIntervalSince(v.at) < 6 * 3600, v.ok { return .direct }
 
         let r: Probe
         if let t = inflight[dom] { r = await t.value } else {
@@ -213,6 +257,8 @@ final class Router: ObservableObject {
         guard settings.prefs.routing != .direct, (settings.gatewayConfigured || hy2?.running == true) else { store.proxyConfigurations = []; return }
         let mode = settings.prefs.routing
         var domains = Set(proxied.keys)
+        for g in Router.groups where mode(of: g) == .proxy { domains.formUnion(self.domains(of: g).map { URLResolver.registrableDomain($0) }) }
+        domains = domains.filter { policyMode($0, host: $0) != .direct }                       // a direct group wins over an old "blocked" verdict
         settings.prefs.forcedProxyDomains.forEach { domains.insert(URLResolver.registrableDomain($0)) }
         settings.sites.filter { $0.value.forceProxy }.keys.forEach { domains.insert($0) }
         if mode == .auto && domains.isEmpty { store.proxyConfigurations = []; return }

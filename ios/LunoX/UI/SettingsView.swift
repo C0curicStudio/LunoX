@@ -198,6 +198,7 @@ struct NetworkSettings: View {
                 }
                 Button { pairFromClipboard() } label: { RowLabel(icon: "doc.on.clipboard", title: "从剪贴板配对", value: "复制 lunox:// 链接后点这里") }
                 Button { Task { await test() } } label: { RowLabel(icon: "waveform.path.ecg", title: testing ? "测试中…" : "测试连接") }.disabled(testing)
+                NavigationLink { PolicyGroupsView() } label: { RowLabel(icon: "square.stack.3d.up", title: "策略组", value: "国内直连 · 国外走服务器") }
                 NavigationLink { DiagnosticsView() } label: { RowLabel(icon: "stethoscope", title: "连接诊断", value: "逐项检查代理链路") }
             } header: { Text("服务器").textCase(nil) }.sectionStyle(theme.surface)
 
@@ -355,5 +356,67 @@ struct OfflineSettings: View {
                 Button(role: .destructive) { offline.clear() } label: { RowLabel(icon: "trash", title: "清空离线缓存") }
             }.sectionStyle(theme.surface)
         }
+    }
+}
+
+
+// MARK: 策略组
+
+/// Which sites go direct and which go through the server. Domestic / payment sites are never sent abroad; blocked sites always use the server
+/// (one fixed exit address), so each site is always seen from the same place and trips fewer risk-control systems.
+struct PolicyGroupsView: View {
+    @EnvironmentObject var settings: Settings
+    @EnvironmentObject var router: Router
+    @Environment(\.theme) private var theme
+    @State private var draft: [String: String] = [:]
+
+    var body: some View {
+        FlatList(title: "策略组") {
+            ForEach(Router.groups) { g in
+                Section {
+                    HStack(spacing: 14) {
+                        Image(systemName: g.icon).font(.system(size: 18, weight: .light)).foregroundStyle(theme.inkSoft).frame(width: 26)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(g.name).font(.system(size: 17))
+                            Text(g.note).font(.system(size: 12)).foregroundStyle(theme.inkSoft)
+                        }
+                        Spacer()
+                    }
+                    Picker("方式", selection: Binding(
+                        get: { router.mode(of: g) },
+                        set: { settings.prefs.groupModes[g.id] = $0.rawValue; router.apply() })) {
+                        ForEach(RouteMode.allCases) { Text($0.title).tag($0) }
+                    }.pickerStyle(.segmented)
+                    DisclosureGroup {
+                        ForEach(settings.prefs.groupDomains[g.id] ?? [], id: \.self) { d in
+                            HStack { Text(d).font(.system(size: 15)); Spacer(); Text("我添加的").font(.system(size: 11)).foregroundStyle(theme.inkSoft) }
+                        }
+                        .onDelete { idx in
+                            var l = settings.prefs.groupDomains[g.id] ?? []; l.remove(atOffsets: idx)
+                            settings.prefs.groupDomains[g.id] = l; router.apply()
+                        }
+                        HStack {
+                            TextField("添加域名，如 example.com", text: Binding(get: { draft[g.id] ?? "" }, set: { draft[g.id] = $0 }))
+                                .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                            if !(draft[g.id] ?? "").isEmpty { Button("添加") { add(g) }.fontWeight(.semibold) }
+                        }
+                        Text(g.domains.prefix(40).joined(separator: "  ")).font(.system(size: 12)).foregroundStyle(theme.inkSoft)
+                    } label: { Text("包含 \(router.domains(of: g).count) 个网站").font(.system(size: 15)).foregroundStyle(theme.inkSoft) }
+                }.sectionStyle(theme.surface)
+            }
+            Section {
+                Button("恢复默认", role: .destructive) { settings.prefs.groupModes = [:]; settings.prefs.groupDomains = [:]; router.reset() }
+            } footer: { Text("其他不在任何组里的网站：先直连测试，不通再走服务器，并且之后一天内保持同一条路线（来回换出口地址更容易触发风控）。个别网站如果拦截了代理出口，会自动改直连。") }.sectionStyle(theme.surface)
+        }
+    }
+
+    private func add(_ g: Router.PolicyGroup) {
+        var t = (draft[g.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        t = t.replacingOccurrences(of: "https://", with: "").replacingOccurrences(of: "http://", with: "")
+        t = String(t.split(separator: "/").first ?? "")
+        guard t.contains("."), t.range(of: #"^[a-z0-9.\-]{3,253}$"#, options: .regularExpression) != nil else { return }
+        for other in Router.groups { settings.prefs.groupDomains[other.id]?.removeAll { $0 == t } }          // one group per site
+        settings.prefs.groupDomains[g.id, default: []].append(t)
+        draft[g.id] = ""; Haptics.ok(); router.apply()
     }
 }

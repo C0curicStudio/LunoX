@@ -78,6 +78,21 @@ final class RouterTests: XCTestCase {
         let r = await Router.probeDirect(host: "no-such-host.invalid")
         XCTAssertFalse(r.ok)
     }
+    func testPolicyGroups() {
+        let s = Settings(); s.prefs.groupModes = [:]; s.prefs.groupDomains = [:]
+        let r = Router(settings: s)
+        XCTAssertEqual(r.policyMode("kimi.ai", host: "platform.kimi.ai"), .direct)       // domestic: never abroad
+        XCTAssertEqual(r.policyMode("example.cn", host: "www.example.cn"), .direct)
+        XCTAssertEqual(r.policyMode("paypal.com", host: "www.paypal.com"), .direct)       // payment: never abroad
+        XCTAssertEqual(r.policyMode("google.com", host: "www.google.com"), .proxy)
+        XCTAssertEqual(r.policyMode("openai.com", host: "chat.openai.com"), .proxy)
+        XCTAssertNil(r.policyMode("github.com", host: "github.com"))                       // auto group
+        XCTAssertNil(r.policyMode("unknown-site.org", host: "unknown-site.org"))
+        s.prefs.groupDomains["social"] = ["my-site.com"]
+        XCTAssertEqual(r.policyMode("my-site.com", host: "my-site.com"), .proxy)           // user added
+        s.prefs.groupModes["cn"] = "auto"
+        XCTAssertNil(r.policyMode("kimi.ai", host: "kimi.ai"))                             // user switched the group to auto
+    }
     func testSetupLink() {
         let s = Settings()
         let pin = String(repeating: "ab", count: 32)
