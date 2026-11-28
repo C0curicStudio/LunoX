@@ -55,11 +55,12 @@ final class Hy2Manager: ObservableObject {
         #if canImport(Hy2bridge)
         guard let c = config, !running else { return }
         var p = 0
-        do {
-            try Hy2bridgeStart(c.host, c.port, c.auth, c.obfs, c.sni, c.insecure, c.pin, c.downMbps, token, &p)
+        var err: NSError?
+        // gomobile exposes Go's (int, error) as: BOOL f(..., long *ret0, NSError **error)
+        if Hy2bridgeStart(c.host, c.port, c.auth, c.obfs, c.sni, c.insecure, c.pin, c.downMbps, token, &p, &err) {
             port = UInt16(clamping: p); running = true; lastError = nil
             onChange?()
-        } catch { lastError = error.localizedDescription; running = false }
+        } else { lastError = err?.localizedDescription ?? "Hysteria2 启动失败"; running = false }
         #endif
     }
 
@@ -79,8 +80,9 @@ final class Hy2Manager: ObservableObject {
         guard running else { return (0, lastError ?? "Hysteria2 未启动") }
         return await Task.detached {
             var ms = 0
-            do { try Hy2bridgeProbe(addr, &ms); return (ms, nil) }
-            catch { return (0, error.localizedDescription) }
+            var err: NSError?
+            if Hy2bridgeProbe(addr, &ms, &err) { return (ms, nil) }
+            return (0, err?.localizedDescription ?? "连接失败")
         }.value
         #else
         return (0, "这个版本没有内置 Hysteria2 内核")
