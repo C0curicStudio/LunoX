@@ -16,6 +16,7 @@ final class Router: ObservableObject {
     private let file = JSONFile<[String: Date]>("proxied.json")
     var edge: EdgeSelector?
     var gateway: GatewayClient?
+    var hy2: Hy2Manager?
 
     private struct WeakStore { weak var s: WKWebsiteDataStore? }
 
@@ -57,7 +58,7 @@ final class Router: ObservableObject {
         case .proxy: return .proxy
         case .auto: break
         }
-        guard settings.gatewayConfigured else { return .direct }
+        guard settings.gatewayConfigured || hy2?.running == true else { return .direct }
         if isForced(dom) || settings.site(host).forceProxy || proxied[dom] != nil { return .proxy }
         if let v = verdicts[dom], Date().timeIntervalSince(v.at) < 600, v.ok { return .direct }
         return nil
@@ -77,7 +78,7 @@ final class Router: ObservableObject {
         case .proxy: apply(); return .proxy
         case .auto: break
         }
-        guard settings.gatewayConfigured else { return .direct }
+        guard settings.gatewayConfigured || hy2?.running == true else { return .direct }
         if isForced(dom) || settings.site(host).forceProxy { apply(); return .proxy }
         if proxied[dom] != nil { apply(); return .proxy }
         if let v = verdicts[dom], Date().timeIntervalSince(v.at) < 600, v.ok { return .direct }
@@ -148,6 +149,16 @@ final class Router: ObservableObject {
     func apply() { stores.removeAll { $0.s == nil }; stores.forEach { if let s = $0.s { configure(s) } } }
 
     /// The proxy WebKit (and the diagnostics) use: the server's HTTPS CONNECT proxy, or the in-app loopback tunnel.
+    /// Built-in Hysteria2 (your own server) as a loopback proxy. Highest priority when it is up.
+    func makeHy2Config(matchDomains: [String]?) -> ProxyConfiguration? {
+        guard let h = hy2, h.running, h.port != 0, let p = NWEndpoint.Port(rawValue: h.port) else { return nil }
+        var c = ProxyConfiguration(httpCONNECTProxy: .hostPort(host: "127.0.0.1", port: p), tlsOptions: nil)
+        c.applyCredential(username: "lunox", password: h.token)
+        c.allowFailover = true
+        if let m = matchDomains { c.matchDomains = m }
+        return c
+    }
+
     func makeConfig(loopback: Bool, matchDomains: [String]?) -> ProxyConfiguration? {
         if loopback, let e = edge, e.tunnel.port != 0, let p = NWEndpoint.Port(rawValue: e.tunnel.port) {
             var local = ProxyConfiguration(httpCONNECTProxy: .hostPort(host: "127.0.0.1", port: p), tlsOptions: nil)
@@ -171,13 +182,14 @@ final class Router: ObservableObject {
     }
 
     private func configure(_ store: WKWebsiteDataStore) {
-        guard settings.gatewayConfigured, settings.prefs.routing != .direct else { store.proxyConfigurations = []; return }
+        guard settings.prefs.routing != .direct, (settings.gatewayConfigured || hy2?.running == true) else { store.proxyConfigurations = []; return }
         let mode = settings.prefs.routing
         var domains = Set(proxied.keys)
         settings.prefs.forcedProxyDomains.forEach { domains.insert(URLResolver.registrableDomain($0)) }
         settings.sites.filter { $0.value.forceProxy }.keys.forEach { domains.insert($0) }
         if mode == .auto && domains.isEmpty { store.proxyConfigurations = []; return }
         let match: [String]? = mode == .auto ? Array(domains) : nil
+        if settings.prefs.useHy2, let h = makeHy2Config(matchDomains: match) { store.proxyConfigurations = [h]; return }
         if let cfg = makeConfig(loopback: edge?.usesTunnel == true, matchDomains: match) { store.proxyConfigurations = [cfg] }
         else { store.proxyConfigurations = [] }
     }

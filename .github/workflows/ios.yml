@@ -19,6 +19,14 @@ jobs:
           if [ -n "$X" ]; then sudo xcode-select -s "$X/Contents/Developer"; fi
           xcodebuild -version
       - run: brew install xcodegen
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Build Hysteria2 core (gomobile)
+        continue-on-error: true
+        run: bash ios/ci/build-hy2.sh
+      - name: Enable Hysteria2 in the project (only if the core built)
+        run: bash ios/ci/enable-hy2.sh
       - name: Generate project
         working-directory: ios
         run: xcodegen generate
@@ -68,6 +76,14 @@ jobs:
           X=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
           if [ -n "$X" ]; then sudo xcode-select -s "$X/Contents/Developer"; fi
       - run: brew install xcodegen
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Build Hysteria2 core (gomobile)
+        continue-on-error: true
+        run: bash ios/ci/build-hy2.sh
+      - name: Enable Hysteria2 in the project (only if the core built)
+        run: bash ios/ci/enable-hy2.sh
       - name: Generate project
         working-directory: ios
         run: xcodegen generate

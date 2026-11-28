@@ -152,6 +152,13 @@ struct NetworkSettings: View {
             } footer: { Text("智能：先直连探测，不通或明显更慢时该站点自动改走你的服务器（加密隧道）。") }.sectionStyle(theme.surface)
 
             Section {
+                Toggle(isOn: $settings.prefs.useHy2) { RowLabel(icon: "bolt.shield", title: "使用内置 Hysteria2") }
+                    .onChange(of: settings.prefs.useHy2) { _, on in if on { store.hy2.start() } else { store.hy2.stop() }; router.apply() }
+                RowLabel(icon: "dot.radiowaves.left.and.right", title: "Hysteria2 状态", value: hy2Value)
+            } header: { Text("内置 Hysteria2（你的节点）").textCase(nil) }
+            footer: { Text("节点参数由服务器提供（在服务器运行 set-hy2.sh 一次），App 里不用填，也不需要另开 VPN 软件。") }.sectionStyle(theme.surface)
+
+            Section {
                 ForEach(edge.routes) { r in
                     HStack(spacing: 14) {
                         Image(systemName: r.id == edge.activeID ? "checkmark.circle.fill" : "circle").font(.system(size: 18, weight: .light))
@@ -209,6 +216,11 @@ struct NetworkSettings: View {
         .onDisappear { commitKey(); router.apply() }
     }
 
+    private var hy2Value: String {
+        if !store.hy2.compiledIn { return "此安装包未内置" }
+        if !store.hy2.configured { return "等待服务器参数" }
+        return store.hy2.running ? "已启动" : (store.hy2.lastError ?? "未启动")
+    }
     private func commitKey() {
         let k = key.trimmingCharacters(in: .whitespacesAndNewlines)
         if !k.isEmpty { settings.gatewayKey = k; key = "" }

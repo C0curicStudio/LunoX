@@ -2,6 +2,7 @@
 const https = require('node:https');
 const http = require('node:http');
 const fs = require('node:fs');
+const path = require('node:path');
 const { config } = require('./config');
 const sec = require('./security');
 const { fetchUrl } = require('./fetcher');
@@ -17,6 +18,16 @@ const SEC_HEADERS = {
   'strict-transport-security': 'max-age=31536000',
   'content-security-policy': "default-src 'none'",
 };
+
+// Parameters of YOUR Hysteria2 server (written by deploy/set-hy2.sh), handed to paired apps so the built-in client needs no typing.
+function readHy2() {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(config.stateDir, 'hy2.json'), 'utf8'));
+    if (!j.host || !j.port || !j.auth) return null;
+    return { host: String(j.host), port: Number(j.port), auth: String(j.auth), obfs: String(j.obfs || ''), sni: String(j.sni || ''),
+             insecure: !!j.insecure, pin: String(j.pin || ''), downMbps: Number(j.downMbps || 0) };
+  } catch { return null; }
+}
 
 // Cloudflare quick-tunnel hostname, read from cloudflared's local metrics endpoint (cached 20s).
 let edgeCache = { at: 0, host: null };
@@ -71,7 +82,7 @@ async function route(req, res) {
   }
 
   if (req.method === 'GET' && p === '/v1/config') {      // the app configures itself from this: no manual fields
-    return send(res, 200, { v: 2, edge: await edgeHost(), llm: llm.publicInfo(), search: { provider: config.search.provider || 'ddg' } });
+    return send(res, 200, { v: 2, edge: await edgeHost(), llm: llm.publicInfo(), search: { provider: config.search.provider || 'ddg' }, hy2: readHy2() });
   }
 
   if (req.method === 'PUT' && p === '/v1/admin/llm') {    // model API settings; the key is write-only

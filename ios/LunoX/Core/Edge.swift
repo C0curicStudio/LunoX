@@ -21,6 +21,7 @@ final class EdgeSelector: ObservableObject {
     var onChange: (() -> Void)?
     private let settings: Settings
     private let gateway: GatewayClient
+    var hy2: Hy2Manager?
     private var lastMeasure = Date.distantPast
 
     init(settings: Settings, gateway: GatewayClient) { self.settings = settings; self.gateway = gateway }
@@ -64,6 +65,7 @@ final class EdgeSelector: ObservableObject {
     func refreshServerConfig() async {
         guard let c = await gateway.config() else { return }
         server = c
+        if settings.prefs.useHy2 { hy2?.update(c.hy2) } else { hy2?.stop() }
         if let e = c.edge, !e.isEmpty, (settings.prefs.edgeHost != e || settings.prefs.edgePort != 443) {
             settings.prefs.edgeHost = e; settings.prefs.edgePort = 443
         }

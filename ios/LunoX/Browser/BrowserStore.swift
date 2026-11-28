@@ -15,6 +15,7 @@ final class BrowserStore: ObservableObject {
     let gateway: GatewayClient
     let edge: EdgeSelector
     let translator: Translator
+    let hy2 = Hy2Manager()
     let offline = OfflineCache()
     let downloads = DownloadManager()
     let extensions = ExtensionManager()
@@ -61,6 +62,9 @@ final class BrowserStore: ObservableObject {
         history = historyFile.load([])
         scriptHandler.store = self
         router.edge = edge
+        router.hy2 = hy2
+        edge.hy2 = hy2
+        hy2.onChange = { [weak self] in self?.router.apply() }
         router.gateway = gateway
         edge.onChange = { [weak self] in self?.router.apply() }
         router.register(normalStore)

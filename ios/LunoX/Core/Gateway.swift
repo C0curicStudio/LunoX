@@ -22,6 +22,7 @@ struct ServerConfig: Decodable {
     struct LLM: Decodable { var configured: Bool; var provider: String; var baseUrl: String; var model: String }
     var edge: String?
     var llm: LLM
+    var hy2: Hy2Config?
 }
 struct SearchHit: Codable, Identifiable, Hashable { var title: String; var url: String; var snippet: String; var id: String { url } }
 

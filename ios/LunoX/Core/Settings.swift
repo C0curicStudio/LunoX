@@ -22,6 +22,7 @@ struct Prefs: Codable, Equatable {
     var preferEdgeTunnel = false
     var translateTarget = ""          // "" = follow the phone's language
     var autoTranslate = false
+    var useHy2 = true
     var blockAppPrompts = true
     var blockForcedLogin = true
     var translateAIFallback = false
