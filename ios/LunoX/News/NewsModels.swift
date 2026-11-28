@@ -22,11 +22,11 @@ struct Score: Codable, Identifiable, Hashable { var id: String; var league: Stri
 struct Trend: Codable, Identifiable, Hashable { var rank: Int; var title: String; var traffic: String; var image: String; var headline: String; var url: String; var id: Int { rank } }
 
 enum NewsSection: String, CaseIterable, Identifiable {
-    case explore, trends, world, china, tech, finance, sports, entertainment, science, french, video
+    case explore, trends, world, china, tech, opensource, finance, sports, entertainment, science, french, video
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .explore: "探索"; case .trends: "当前趋势"; case .world: "国际"; case .china: "中文"; case .tech: "科技"; case .finance: "财经"
+        case .explore: "探索"; case .trends: "当前趋势"; case .world: "国际"; case .china: "中文"; case .tech: "科技"; case .opensource: "开源"; case .finance: "财经"
         case .sports: "体育"; case .entertainment: "娱乐"; case .science: "科学"; case .french: "法语"; case .video: "视频"
         }
     }
@@ -46,8 +46,11 @@ final class NewsStore: ObservableObject {
     private let dir = Paths.dir("News", excludeFromBackup: true)
     private var fetchedAt: [NewsSection: Date] = [:]
 
-    init(gateway: GatewayClient, settings: Settings) {
+    private let engine: NewsEngine
+
+    init(gateway: GatewayClient, settings: Settings, router: Router) {
         self.gateway = gateway; self.settings = settings
+        self.engine = NewsEngine(gateway: gateway, router: router, settings: settings)
         for s in NewsSection.allCases where s != .trends { if let a: [Article] = disk("\(s.rawValue).json") { articles[s] = a } }
         if let t: [Trend] = disk("trends.json") { trends = t }
         if let sc: [Score] = disk("scores.json") { scores = sc }
@@ -65,31 +68,41 @@ final class NewsStore: ObservableObject {
 
     private struct Wrap<T: Decodable>: Decodable { var items: [T] }
 
+    private func hasContent(_ s: NewsSection) -> Bool { s == .trends ? !trends.isEmpty : !(articles[s] ?? []).isEmpty }
+
+    /// Local-first: every source is fetched straight from the phone (relayed through your server only when slow/blocked),
+    /// shown as soon as the first source answers; the server's aggregator is the last fallback.
     func load(_ s: NewsSection, force: Bool = false) async {
-        if !force, let t = fetchedAt[s], Date().timeIntervalSince(t) < 300, !(articles[s] ?? []).isEmpty || s == .trends { return }
+        if !force, let t = fetchedAt[s], Date().timeIntervalSince(t) < 300, hasContent(s) { return }
         guard !loading.contains(s) else { return }
         #if DEBUG
         if Demo.value("demo") == "news", !settings.gatewayConfigured { loadDemo(); return }
         #endif
-        guard settings.gatewayConfigured else { failed[s] = "unpaired"; return }
         loading.insert(s); defer { loading.remove(s) }
-        do {
-            if s == .trends {
-                let region = Locale.current.region?.identifier ?? "US"
-                let geo = ["CN": "HK"][region] ?? region
-                let d = try await gateway.newsData("/v1/news/trends", ["geo": geo])
-                trends = try JSONDecoder().decode(Wrap<Trend>.self, from: d).items; save(trends, "trends.json")
-            } else {
-                let d = try await gateway.newsData("/v1/news", ["cat": s.rawValue])
-                let items = try JSONDecoder().decode(Wrap<Article>.self, from: d).items
-                articles[s] = items; save(items, "\(s.rawValue).json")
-                if s == .explore || s == .sports, let sd = try? await gateway.newsData("/v1/news/scores", [:]),
-                   let sc = try? JSONDecoder().decode(Wrap<Score>.self, from: sd).items { scores = sc; save(sc, "scores.json") }
-            }
-            fetchedAt[s] = Date(); failed[s] = nil; fromCache = false
-        } catch {
-            failed[s] = error.localizedDescription
-            fromCache = !(articles[s] ?? []).isEmpty || (s == .trends && !trends.isEmpty)
+        failed[s] = nil
+
+        if s == .trends {
+            let region = Locale.current.region?.identifier ?? "US"
+            let geo = ["CN": "HK"][region] ?? region
+            var t = await engine.trends(geo: geo)
+            if t.isEmpty, settings.gatewayConfigured, let d = try? await gateway.newsData("/v1/news/trends", ["geo": geo]) { t = (try? JSONDecoder().decode(Wrap<Trend>.self, from: d).items) ?? [] }
+            if t.isEmpty { failed[s] = settings.gatewayConfigured ? "empty" : "blocked"; fromCache = !trends.isEmpty }
+            else { trends = t; save(t, "trends.json"); fetchedAt[s] = Date(); fromCache = false }
+            return
+        }
+
+        var items = await engine.load(s) { [weak self] partial in self?.articles[s] = partial }
+        if items.isEmpty, settings.gatewayConfigured, let d = try? await gateway.newsData("/v1/news", ["cat": s.rawValue]),
+           let srv = try? JSONDecoder().decode(Wrap<Article>.self, from: d).items { items = srv }
+        if items.isEmpty {
+            failed[s] = settings.gatewayConfigured ? "empty" : "blocked"
+            fromCache = !(articles[s] ?? []).isEmpty
+        } else {
+            articles[s] = items; save(items, "\(s.rawValue).json"); fetchedAt[s] = Date(); fromCache = false
+        }
+        if s == .explore || s == .sports {
+            let sc = await engine.scores()
+            if !sc.isEmpty { scores = sc; save(sc, "scores.json") }
         }
     }
 

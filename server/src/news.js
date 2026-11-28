@@ -13,6 +13,7 @@ const FEEDS = {
   world: [['BBC News', 'https://feeds.bbci.co.uk/news/world/rss.xml'], ['The Guardian', 'https://www.theguardian.com/world/rss'], ['NPR', 'https://feeds.npr.org/1001/rss.xml'], ['Al Jazeera', 'https://www.aljazeera.com/xml/rss/all.xml']],
   china: [['BBC 中文', 'https://feeds.bbci.co.uk/zhongwen/simp/rss.xml'], ['中新网', 'https://www.chinanews.com.cn/rss/scroll-news.xml'], ['少数派', 'https://sspai.com/feed'], ['FT 中文网', 'https://www.ftchinese.com/rss/news']],
   tech: [['The Verge', 'https://www.theverge.com/rss/index.xml'], ['Ars Technica', 'https://feeds.arstechnica.com/arstechnica/index'], ['TechCrunch', 'https://techcrunch.com/feed/'], ['36氪', 'https://36kr.com/feed']],
+  opensource: [['GitHub Blog', 'https://github.blog/feed/'], ['Hacker News', 'https://hnrss.org/frontpage'], ['Lobsters', 'https://lobste.rs/rss'], ['阮一峰', 'https://www.ruanyifeng.com/blog/atom.xml'], ['InfoQ', 'https://www.infoq.cn/feed']],
   finance: [['BBC Business', 'https://feeds.bbci.co.uk/news/business/rss.xml'], ['CNBC', 'https://www.cnbc.com/id/100003114/device/rss/rss.html'], ['Guardian Business', 'https://www.theguardian.com/uk/business/rss']],
   sports: [['BBC Sport', 'https://feeds.bbci.co.uk/sport/rss.xml'], ['ESPN', 'https://www.espn.com/espn/rss/news'], ['Guardian Sport', 'https://www.theguardian.com/sport/rss']],
   entertainment: [['BBC Entertainment', 'https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml'], ['Variety', 'https://variety.com/feed/'], ['Guardian Film', 'https://www.theguardian.com/film/rss']],

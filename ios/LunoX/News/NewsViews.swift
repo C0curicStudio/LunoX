@@ -420,8 +420,8 @@ private struct SectionFeed: View {
 
     private var empty: some View {
         VStack(spacing: 12) {
-            Image(systemName: news.failed[section] == "unpaired" ? "link.badge.plus" : "wifi.exclamationmark").font(.system(size: 38, weight: .light)).foregroundStyle(theme.inkSoft)
-            Text(news.failed[section] == "unpaired" ? "新闻由你的服务器聚合，请先在 设置 › 网络与线路 完成配对" : "暂时没有内容，下拉重试").font(.system(size: 15, design: .rounded)).foregroundStyle(theme.inkSoft).multilineTextAlignment(.center)
+            Image(systemName: news.failed[section] == "blocked" ? "link.badge.plus" : "wifi.exclamationmark").font(.system(size: 38, weight: .light)).foregroundStyle(theme.inkSoft)
+            Text(news.failed[section] == "blocked" ? "当前网络无法直接访问新闻源。配对服务器后会自动经服务器获取（设置 › 网络与线路）" : "暂时没有内容，下拉重试").font(.system(size: 15, design: .rounded)).foregroundStyle(theme.inkSoft).multilineTextAlignment(.center)
         }.frame(maxWidth: .infinity).padding(.top, 70)
     }
 
