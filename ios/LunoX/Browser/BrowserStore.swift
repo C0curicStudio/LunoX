@@ -30,6 +30,7 @@ final class BrowserStore: ObservableObject {
     @Published var tabs: [Tab] = []
     @Published var selectedID: UUID?
     @Published var showSwitcher = false
+    @Published var ready = false          // tabs restored, blocker compiled, caches in: the splash screen may leave
     @Published var barsCollapsed = false
     @Published var online = true
     @Published var bookmarks: [Bookmark]
@@ -311,6 +312,7 @@ final class BrowserStore: ObservableObject {
         if let hp = URL(string: settings.prefs.homepage), !settings.prefs.homepage.isEmpty, current?.isBlank == true { current?.navigate(hp) }
         if settings.prefs.syncBookmarks { Task { await sync() } }
         if settings.prefs.nativeTemplates { templates.warmUp() }
+        ready = true
         news.warmUp()
     }
 

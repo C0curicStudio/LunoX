@@ -15,7 +15,12 @@
   <key>ITSAppUsesNonExemptEncryption</key><false/>
   <key>LunoXKey</key><string>$(LUNOX_KEY)</string>
   <key>LunoXPin</key><string>$(LUNOX_PIN)</string>
-  <key>UILaunchScreen</key><dict/>
+  <key>UILaunchScreen</key>
+  <dict>
+    <key>UIColorName</key><string>LaunchBackground</string>
+    <key>UIImageName</key><string>LaunchIcon</string>
+    <key>UIImageRespectsSafeAreaInsets</key><false/>
+  </dict>
   <key>UIApplicationSceneManifest</key>
   <dict>
     <key>UIApplicationSupportsMultipleScenes</key><false/>

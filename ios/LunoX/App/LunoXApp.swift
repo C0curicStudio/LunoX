@@ -6,6 +6,7 @@ struct LunoXApp: App {
     @StateObject private var store = BrowserStore()
     @StateObject private var lock = AppLock()
     @Environment(\.scenePhase) private var phase
+    @StateObject private var splash = SplashController()
 
     var body: some Scene {
         WindowGroup {
@@ -46,7 +47,9 @@ struct ThemedRoot: View {
         ZStack {
             RootView()
             if settings.prefs.appLock && (lock.locked || phase != .active) { LockView().transition(.opacity) }
+            if !splash.finished { SplashView(c: splash).zIndex(100) }
         }
+        .task { await splash.run(store: store) }
         .environment(\.theme, theme)
         .preferredColorScheme(settings.prefs.appearance.forced)
         .tint(theme.accent)
