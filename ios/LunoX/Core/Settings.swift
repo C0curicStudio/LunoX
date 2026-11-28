@@ -22,6 +22,10 @@ struct Prefs: Codable, Equatable {
     var preferEdgeTunnel = false
     var translateTarget = ""          // "" = follow the phone's language
     var autoTranslate = false
+    var startOrder: [String] = ["favorites", "frequent", "news", "offline", "closed"]
+    var startHidden: [String] = ["closed"]
+    var startBackground = ""          // "" = plain (default)
+    var newsAutoplay = true
     var useHy2 = true
     var blockAppPrompts = true
     var blockForcedLogin = true

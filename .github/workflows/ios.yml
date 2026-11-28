@@ -140,6 +140,11 @@ jobs:
           shot 11d-diag safari light menu -push diag
           shot 12-ai safari light menu -push ai
           shot 13-private safari light private
+          shot 13b-news safari light news
+          shot 13c-news-dark safari dark news
+          shot 13d-startedit safari light startedit
+          shot 13e-bg-dunes safari light startbg -bg dunes
+          shot 13f-bg-mountains safari dark startbg -bg mountains
           shot 14-find safari light find
           shot 15-fixedbar-light safari light fixedbar
           shot 16-fixedbar-dark safari dark fixedbar

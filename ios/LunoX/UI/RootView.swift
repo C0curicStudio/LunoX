@@ -10,6 +10,9 @@ struct RootView: View {
     @State private var showSite = false
     @State private var showFind = false
     @State private var menuDetent: PresentationDetent = .medium
+    @State private var showNews = false
+    @State private var showStartEdit = false
+    @State private var newsStart: NewsSection = .explore
     @State private var showHero = false
     @State private var menuRoute: MenuRoute?
     @Namespace private var ns
@@ -53,8 +56,20 @@ struct RootView: View {
         .animation(Motion.smooth, value: store.selectedID)
         .animation(Motion.hero, value: store.showSwitcher)
         .onChange(of: store.searchRequest) { _, _ in openSearch() }
+        .onChange(of: store.newsRequest) { _, _ in showNews = true }
+        .onChange(of: store.startEditRequest) { _, _ in showStartEdit = true }
+        .fullScreenCover(isPresented: $showNews) {
+            NewsView(start: newsStart,
+                     onClose: { showNews = false },
+                     onOpen: { u in showNews = false; store.open(u.absoluteString) },
+                     onSearch: { showNews = false; DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { openSearch() } },
+                     onSettings: { showNews = false; DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { menuRoute = .settings; showMenu = true } })
+        }
+        .sheet(isPresented: $showStartEdit) { StartPageEditor().presentationDetents([.large]).presentationDragIndicator(.visible) }
         .sheet(isPresented: $showMenu, onDismiss: { menuRoute = nil; menuDetent = .medium }) {
-            MenuSheet(onFind: { withAnimation(.snappy) { showFind = true } }, initialRoute: menuRoute, onDeep: { menuDetent = .large })
+            MenuSheet(onFind: { withAnimation(.snappy) { showFind = true } }, initialRoute: menuRoute, onDeep: { menuDetent = .large },
+                      onNews: { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showNews = true } },
+                      onStartEdit: { DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { showStartEdit = true } })
                 .presentationDetents([.medium, .large], selection: $menuDetent).presentationDragIndicator(.visible)
         }
         #if DEBUG
@@ -205,6 +220,7 @@ extension Demo {
     """#
 }
 extension RootView {
+    @MainActor func settingsBG(_ id: String) { settings.prefs.startBackground = id }
     @MainActor func runDemo() async {
         guard let d = Demo.value("demo") else { return }
         try? await Task.sleep(nanoseconds: 1_500_000_000)
@@ -217,6 +233,9 @@ extension RootView {
         case "switcher":
             store.newTab(url: URL(string: "https://example.com")); try? await Task.sleep(nanoseconds: 5_000_000_000)
             store.newTab(); store.showSwitcher = true
+        case "news": showNews = true
+        case "startedit": showStartEdit = true
+        case "startbg": settingsBG(Demo.value("bg") ?? "dunes")
         case "private": store.newTab(isPrivate: true)
         case "fixedbar":    // page with its own bottom bar and no viewport meta: exercises the adapter
             let t = store.newTab(url: URL(string: "https://demo.lunox/"))

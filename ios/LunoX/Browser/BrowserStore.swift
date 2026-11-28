@@ -16,6 +16,9 @@ final class BrowserStore: ObservableObject {
     let edge: EdgeSelector
     let translator: Translator
     let hy2 = Hy2Manager()
+    let news: NewsStore
+    @Published var newsRequest = 0
+    @Published var startEditRequest = 0
     let offline = OfflineCache()
     let downloads = DownloadManager()
     let extensions = ExtensionManager()
@@ -58,6 +61,8 @@ final class BrowserStore: ObservableObject {
         gateway = GatewayClient(settings: s)
         edge = EdgeSelector(settings: s, gateway: gateway)
         translator = Translator(gateway: gateway)
+        news = NewsStore(gateway: gateway, settings: s)
+        ImageStore.shared.gateway = gateway
         bookmarks = bookmarksFile.load([])
         history = historyFile.load([])
         scriptHandler.store = self

@@ -14,6 +14,7 @@ struct LunoXApp: App {
                 .environmentObject(store.settings)
                 .environmentObject(store.router)
                 .environmentObject(store.edge)
+                .environmentObject(store.news)
                 .environmentObject(store.offline)
                 .environmentObject(store.downloads)
                 .environmentObject(store.extensions)
@@ -78,7 +79,6 @@ struct LockView: View {
     var body: some View {
         ZStack {
             Rectangle().fill(.ultraThickMaterial).ignoresSafeArea()
-            FlatArt(theme: theme, seed: 0).frame(height: 320).frame(maxHeight: .infinity, alignment: .top).ignoresSafeArea().opacity(0.7)
             VStack(spacing: 18) {
                 Image(systemName: "lock.fill").font(.system(size: 34, weight: .light))
                 Text("LunoX 已锁定").font(.system(.title3, design: .rounded, weight: .semibold))

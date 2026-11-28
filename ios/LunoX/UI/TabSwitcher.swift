@@ -17,7 +17,6 @@ struct TabSwitcher: View {
     var body: some View {
         ZStack {
             Rectangle().fill(.ultraThickMaterial).overlay(theme.bgTop.opacity(0.66)).ignoresSafeArea()
-            FlatArt(theme: theme, seed: 1).frame(height: 260).opacity(0.2).frame(maxHeight: .infinity, alignment: .top).ignoresSafeArea()
 
             VStack(spacing: 0) {
                 VStack(spacing: 10) {
@@ -159,7 +158,6 @@ struct TabCard: View {
         } else {
             ZStack {
                 theme.background
-                FlatArt(theme: theme, seed: abs(tab.id.hashValue) % 3, animated: false).opacity(0.3)
                 FaviconTile(image: icon, fallback: tab.displayTitle, symbol: tab.isBlank ? "plus" : nil, size: 54, radius: 16).shadow(color: .black.opacity(0.12), radius: 8, y: 3)
             }
         }

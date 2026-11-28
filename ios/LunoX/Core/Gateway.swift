@@ -221,6 +221,12 @@ final class GatewayClient: NSObject, URLSessionDelegate {
         return arr
     }
 
+    /// Raw GET of an authenticated JSON endpoint (news, scores, trends).
+    func newsData(_ path: String, _ query: [String: String]) async throws -> Data {
+        let r = try await makeRequest(path, query, timeout: 25)
+        return try await send(r).0
+    }
+
     func act(args: [String: Any]) async throws -> AgentPlan {
         let body = try JSONSerialization.data(withJSONObject: ["task": "act", "args": args])
         let r = try await makeRequest("/v1/ai", method: "POST", body: body, timeout: 60)

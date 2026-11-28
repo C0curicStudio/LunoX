@@ -11,6 +11,8 @@ struct MenuSheet: View {
     var onFind: () -> Void
     var initialRoute: MenuRoute? = nil
     var onDeep: () -> Void = {}
+    var onNews: () -> Void = {}
+    var onStartEdit: () -> Void = {}
     @State private var path: [MenuRoute] = []
     @State private var shown = false
 
@@ -26,6 +28,7 @@ struct MenuSheet: View {
             Item(icon: "plus.square", title: "新标签页", kind: .action { store.newTab(); dismiss() }),
             Item(icon: "eyeglasses", title: "隐私标签页", kind: .action { store.newTab(isPrivate: true); dismiss() }),
             Item(icon: "arrow.uturn.backward.circle", title: "恢复关闭", on: !store.recentlyClosed.isEmpty, kind: .action { store.reopenClosed(); dismiss() }),
+            Item(icon: "newspaper", title: "新闻", kind: .action { dismiss(); onNews() }),
             Item(icon: "star", title: "书签", kind: .route(.bookmarks)),
             Item(icon: "clock", title: "历史记录", kind: .route(.history)),
             Item(icon: "arrow.down.circle", title: "下载", kind: .route(.downloads)),
@@ -43,6 +46,7 @@ struct MenuSheet: View {
             Item(icon: "safari", title: "在 Safari 打开", on: tab?.url != nil, kind: .action { if let u = tab?.url { UIApplication.shared.open(u) }; dismiss() }),
             Item(icon: "puzzlepiece.extension", title: "扩展与脚本", kind: .route(.extensions)),
             Item(icon: "paintpalette", title: "主题与外观", kind: .route(.themes)),
+            Item(icon: "slider.horizontal.3", title: "自定义起始页", kind: .action { dismiss(); onStartEdit() }),
             Item(icon: "gearshape", title: "设置", kind: .route(.settings)),
         ]
         return l
@@ -285,7 +289,6 @@ struct ThemesView: View {
             ZStack(alignment: .bottomLeading) {
                 // left half = light, right half = dark: both variants at a glance
                 HStack(spacing: 0) { f.light.background; f.dark.background }
-                FlatArt(theme: t, seed: abs(f.id.hashValue) % 3, animated: false).opacity(0.95)
                 HStack(spacing: 6) {
                     Circle().fill(f.light.accent).frame(width: 14, height: 14)
                     Circle().fill(f.dark.accent).frame(width: 14, height: 14)

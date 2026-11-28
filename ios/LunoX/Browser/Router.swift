@@ -23,7 +23,7 @@ final class Router: ObservableObject {
     /// Sites whose sub-resources live on other domains; proxying the main site must cover them too.
     static let companions: [String: [String]] = [
         "google.com": ["gstatic.com", "googleapis.com", "googleusercontent.com", "ggpht.com", "gvt1.com", "google.com.hk"],
-        "youtube.com": ["googlevideo.com", "ytimg.com", "ggpht.com", "gstatic.com", "googleapis.com", "youtu.be", "google.com"],
+        "youtube.com": ["googlevideo.com", "ytimg.com", "youtube-nocookie.com", "ggpht.com", "gstatic.com", "googleapis.com", "youtu.be", "google.com"],
         "facebook.com": ["fbcdn.net", "fb.com", "facebook.net"],
         "instagram.com": ["cdninstagram.com", "fbcdn.net"],
         "twitter.com": ["twimg.com", "t.co", "x.com"],
