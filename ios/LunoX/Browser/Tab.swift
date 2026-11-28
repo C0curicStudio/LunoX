@@ -106,6 +106,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         wv.scrollView.decelerationRate = .normal
         wv.overrideUserInterfaceStyle = store.webStyle
         wv.underPageBackgroundColor = UIColor(store.pageBackdrop)
+        wv.customUserAgent = SafariUA.mobile
         #if DEBUG
         wv.isInspectable = true
         #endif
@@ -454,6 +455,8 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         let site = store.settings.site(host)
         preferences.allowsContentJavaScript = site.javascript
         preferences.preferredContentMode = site.desktop ? .desktop : .mobile
+        let ua = site.desktop ? SafariUA.desktop : SafariUA.mobile
+        if webView.customUserAgent != ua { webView.customUserAgent = ua }
         if action.navigationType != .backForward, store.router.cachedRoute(for: url) == nil {
             store.router.resolveInBackground(url) { [weak self] in if self?.webView?.url?.host == url.host { self?.webView?.load(URLRequest(url: url)) } }
         }
@@ -480,8 +483,9 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         fingerprintHits = 0
         translated = false; canTranslate = false; translateDismissed = dismissedHost != nil && dismissedHost == webView.url?.host; pageLang = nil
         let site = store.settings.site(webView.url?.host)
+        let prof = store.router.profile(for: webView.url?.host)
         let p = store.settings.prefs
-        Task { _ = await js("window.__luno && window.__luno.setFilter(\(p.blockAppPrompts && !site.allowNags), \(p.blockForcedLogin && !site.allowNags))") }
+        Task { _ = await js("window.__luno && window.__luno.setFilter(\(p.blockAppPrompts && !site.allowNags && prof.removeAppPrompts), \(p.blockForcedLogin && !site.allowNags && prof.removeLoginPrompts))") }
         webView.scrollView.pinchGestureRecognizer?.isEnabled = false
         favicon = webView.url?.host.flatMap { store.icon(for: $0) }
     }

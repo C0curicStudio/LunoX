@@ -163,6 +163,16 @@ final class TemplateTests: XCTestCase {
         let p = try? JSONSerialization.jsonObject(with: #"[{"type":"stream","url":"/watch?v=DxgDeW-gIcU","title":"T","uploaderName":"U","duration":125,"views":1500}]"#.data(using: .utf8)!)
         XCTAssertEqual(SiteParse.pipedItems(p).first?.id, "DxgDeW-gIcU"); XCTAssertEqual(SiteParse.pipedItems(p).first?.duration, "2:05")
     }
+    func testSafariUserAgentLooksLikeSafari() {
+        let m = SafariUA.mobile, d = SafariUA.desktop
+        XCTAssertTrue(d.contains("Version/") && d.hasSuffix("Safari/605.1.15"))
+        if UIDevice.current.userInterfaceIdiom == .phone { XCTAssertTrue(m.contains("Mobile/15E148 Safari/604.1")); XCTAssertTrue(m.contains("Version/")) }
+    }
+    func testSiteProfiles() {
+        XCTAssertFalse(SiteProfile.forGroup("ai").removeLoginPrompts)
+        XCTAssertFalse(SiteProfile.forGroup("pay").removeAppPrompts)
+        XCTAssertTrue(SiteProfile.forGroup(nil).removeLoginPrompts)
+    }
     func testTrackingParams() {
         let u = URL(string: "https://example.com/a?id=5&utm_source=x&fbclid=abc&q=hi")!
         XCTAssertEqual(TrackingParams.clean(u)?.absoluteString, "https://example.com/a?id=5&q=hi")
