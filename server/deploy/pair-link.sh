@@ -15,5 +15,11 @@ if [ -r /var/lib/lunox/hy2.json ]; then
   NODE=/opt/lunox/runtime/bin/node; [ -x "$NODE" ] || NODE=$(command -v node)
   HY2="&hy2=$("$NODE" -e 'process.stdout.write(Buffer.from(JSON.stringify(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")))).toString("base64url"))' /var/lib/lunox/hy2.json)"
 fi
-echo "lunox://setup?host=$IP&port=$PORT&key=$KEY&pin=$PIN$HY2"
+EDGE=""
+EM=$(grep -m1 '^LUNOX_EDGE_METRICS=' /etc/lunox/env | cut -d= -f2 || true)
+if [ -n "$EM" ]; then
+  EH=$(curl -s -m 3 "http://$EM/quicktunnel" 2>/dev/null | sed -n 's/.*"hostname":"\([^"]*\)".*/\1/p' || true)
+  [ -n "$EH" ] && EDGE="&edge=$EH&edgePort=443"
+fi
+echo "lunox://setup?host=$IP&port=$PORT&key=$KEY&pin=$PIN$EDGE$HY2"
 echo

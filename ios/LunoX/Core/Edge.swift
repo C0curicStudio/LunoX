@@ -43,8 +43,11 @@ final class EdgeSelector: ObservableObject {
     func measure(force: Bool = false) async {
         guard settings.gatewayConfigured, !measuring else { return }
         if !force, Date().timeIntervalSince(lastMeasure) < 240 { return }
-        measuring = true; defer { measuring = false; lastMeasure = Date() }
-        await refreshServerConfig()
+        var learned = true
+        // if the server's answer is missing (tunnel not up yet / network just changed) look again in under a minute, not in four
+        measuring = true; defer { measuring = false; lastMeasure = learned ? Date() : Date().addingTimeInterval(-200) }
+        hy2?.ensureRunning(enabled: settings.prefs.useHy2)            // the gateway is reached through the tunnel when direct TCP is blocked
+        learned = await refreshServerConfig()
         let rs = routes
         var out: [String: RouteResult] = [:]
         await withTaskGroup(of: (String, RouteResult).self) { g in
@@ -62,13 +65,15 @@ final class EdgeSelector: ObservableObject {
     }
 
     /// The gateway tells us its Cloudflare address (and model status): nothing to type in the app.
-    func refreshServerConfig() async {
-        guard let c = await gateway.config() else { return }
+    @discardableResult
+    func refreshServerConfig() async -> Bool {
+        guard let c = await gateway.config() else { return false }
         server = c
         if settings.prefs.useHy2 { hy2?.update(c.hy2) } else { hy2?.stop() }
         if let e = c.edge, !e.isEmpty, (settings.prefs.edgeHost != e || settings.prefs.edgePort != 443) {
             settings.prefs.edgeHost = e; settings.prefs.edgePort = 443
         }
+        return true
     }
 
     private func activate(_ r: Route) async {

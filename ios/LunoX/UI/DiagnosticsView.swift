@@ -68,13 +68,16 @@ final class Diagnostics: ObservableObject {
                 if let ms = t.ms { set(1, .warn, "直连不通（\(d.error ?? "无法连接")），但经 Hysteria2 隧道可达（\(ms) ms）。App 会自动走隧道访问网关，AI/搜索/同步可用。") }
                 else { set(1, .fail, (d.error ?? "无法连接") + "\n隧道里也连不上：\(t.error ?? "")\n常见原因：证书指纹不一致；网关服务没运行；云安全组没放行 TCP \(p.gatewayPort)。") }
             }
-            // 2 edge
+            // 2 edge  (ask the gateway for its Cloudflare address first: it answers through the tunnel when direct TCP is blocked)
             steps[2].state = .running
-            if p.edgeHost.isEmpty { set(2, .warn, "App 还没有 Cloudflare 地址（先在服务器运行 edge.sh，且网关要能连上）") }
-            else {
-                let e = await store.gateway.ping(host: p.edgeHost, port: p.edgePort, pinned: false)
-                if let ms = e.ms { set(2, .ok, "\(p.edgeHost) · \(Int(ms / 2)) ms" + (e.colo.map { " · 节点 \($0)" } ?? "")) }
-                else { set(2, .warn, "\(p.edgeHost)：\(e.error ?? "无法连接")") }
+            await store.edge.refreshServerConfig()
+            let eh = s.prefs.edgeHost, ep = s.prefs.edgePort
+            if eh.isEmpty {
+                set(2, .warn, "App 还没有 Cloudflare 地址。\n① 服务器要运行过 edge.sh；② App 要能连上网关拿到地址（直连不通时会走隧道，隧道通了就会自动获取）；③ 或在服务器上重新运行 pair-link.sh 配对，链接里会带上这个地址。")
+            } else {
+                let e = await store.gateway.ping(host: eh, port: ep, pinned: false)
+                if let ms = e.ms { set(2, .ok, "\(eh) · \(Int(ms / 2)) ms" + (e.colo.map { " · 节点 \($0)" } ?? "")) }
+                else { set(2, .warn, "\(eh)：\(e.error ?? "无法连接")\n这个手机网络可能连不上 trycloudflare.com；有 Hysteria2 时不影响使用，边缘只是备用线路。") }
             }
             // 3 server -> internet
             steps[3].state = .running
