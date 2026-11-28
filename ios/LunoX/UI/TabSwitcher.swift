@@ -130,10 +130,13 @@ struct TabCard: View {
             }
             .buttonStyle(PressableStyle(scale: 0.96))
             .overlay(alignment: .topTrailing) {
+                // the circle is 28pt but the tappable area is 48pt and sits on top of the card's own tap target, so a near miss closes
+                // the tab instead of opening it
                 Button(action: onClose) {
-                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(theme.ink).frame(width: 26, height: 26)
+                    Image(systemName: "xmark").font(.system(size: 12, weight: .bold)).foregroundStyle(theme.ink).frame(width: 28, height: 28)
                         .background(.regularMaterial, in: Circle())
-                }.buttonStyle(PressableStyle(scale: 0.85)).padding(10)
+                        .frame(width: 48, height: 48).contentShape(Rectangle())
+                }.buttonStyle(PressableStyle(scale: 0.85)).padding(2)
             }
 
             HStack(spacing: 7) {
