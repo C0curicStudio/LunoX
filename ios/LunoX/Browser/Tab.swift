@@ -358,7 +358,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         while i < texts.count {
             let n = min(sizes[min(k, sizes.count - 1)], texts.count - i); k += 1
             let sub = Array(texts[i..<(i + n)]), subIDs = Array(ids[i..<(i + n)]); i += n
-            guard let out = await store.translator.translate(sub, source: pageLang, target: target), out.count == sub.count else {
+            guard let out = await store.translator.translate(sub, source: pageLang, target: target, remember: !isPrivate), out.count == sub.count else {
                 if first { flash("翻译失败：" + (store.translator.coord.lastError.isEmpty ? "请在系统弹出的提示里下载该语言包后重试" : store.translator.coord.lastError)); Haptics.warn() }
                 return
             }

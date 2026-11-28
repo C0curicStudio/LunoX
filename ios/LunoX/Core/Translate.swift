@@ -102,7 +102,7 @@ final class Translator: ObservableObject {
     init(gateway: GatewayClient) { self.gateway = gateway }
 
     /// Cached per (target, text): a sentence is translated once, ever. Misses go to Apple's on-device model in one deduplicated batch.
-    func translate(_ texts: [String], source: String?, target: String) async -> [String]? {
+    func translate(_ texts: [String], source: String?, target: String, remember: Bool = true) async -> [String]? {
         let cache = TranslationCache.shared
         var out = texts
         var misses: [String: [Int]] = [:]
@@ -115,7 +115,7 @@ final class Translator: ObservableObject {
         if #available(iOS 18.0, *), let r = await coord.run(texts: uniq, source: source, target: target), r.count == uniq.count { got = r }
         if got == nil, allowAIFallback { got = try? await gateway.translateBatch(uniq, target: target) }   // page text never leaves the phone unless the user opted in
         guard let g = got, g.count == uniq.count else { return nil }
-        cache.put(Array(zip(uniq, g)), target: target)
+        if remember { cache.put(Array(zip(uniq, g)), target: target) }
         for (u, t) in zip(uniq, g) { for i in misses[u] ?? [] { out[i] = t } }
         return out
     }
@@ -123,19 +123,28 @@ final class Translator: ObservableObject {
 }
 
 
-/// Translations survive restarts (and are shared by pages and the news screen), so a page or headline seen before appears translated at once.
+/// Translations are remembered on this phone only (never uploaded) for 30 days, so a page or headline seen before appears translated at once.
 @MainActor
 final class TranslationCache {
     static let shared = TranslationCache()
-    private var map: [String: String]
-    private let file = JSONFile<[String: String]>("translation-cache.json")
+    private struct Entry: Codable { var t: String; var at: Double }
+    private static let ttl: Double = 30 * 86_400, cap = 24_000
+    private var map: [String: Entry]
+    private let file = JSONFile<[String: Entry]>("translation-cache.json")
     private var pending: Task<Void, Never>?
-    private init() { map = file.load([:]) }
+    private init() {
+        let now = Date().timeIntervalSince1970
+        map = file.load([:]).filter { now - $0.value.at < Self.ttl }
+    }
 
-    func get(_ text: String, _ target: String) -> String? { map[target + "\u{1}" + text] }
+    func get(_ text: String, _ target: String) -> String? {
+        guard let e = map[target + "\u{1}" + text], Date().timeIntervalSince1970 - e.at < Self.ttl else { return nil }
+        return e.t
+    }
     func put(_ pairs: [(String, String)], target: String) {
-        for (a, b) in pairs where !b.isEmpty { map[target + "\u{1}" + a] = b }
-        if map.count > 24_000 { for k in map.keys.prefix(6_000) { map[k] = nil } }
+        let now = Date().timeIntervalSince1970
+        for (a, b) in pairs where !b.isEmpty { map[target + "\u{1}" + a] = Entry(t: b, at: now) }
+        if map.count > Self.cap { for k in map.sorted(by: { $0.value.at < $1.value.at }).prefix(6_000).map(\.key) { map[k] = nil } }
         pending?.cancel()
         pending = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_500_000_000)
@@ -143,4 +152,5 @@ final class TranslationCache {
             self.file.save(self.map)
         }
     }
+    func clear() { map = [:]; pending?.cancel(); file.save([:]) }
 }

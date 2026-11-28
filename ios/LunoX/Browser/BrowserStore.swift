@@ -311,6 +311,7 @@ final class BrowserStore: ObservableObject {
     func clearBrowsingData(history h: Bool, website: Bool, offline o: Bool) async {
         if h { clearHistory() }
         if o { offline.clear() }
+        if h || website { TranslationCache.shared.clear() }
         if website {
             await WKWebsiteDataStore.default().removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
             router.reset()
