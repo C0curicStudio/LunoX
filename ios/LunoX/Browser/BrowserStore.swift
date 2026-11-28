@@ -69,6 +69,7 @@ final class BrowserStore: ObservableObject {
         scriptHandler.store = self
         router.edge = edge
         router.hy2 = hy2
+        gateway.hy2 = hy2
         edge.hy2 = hy2
         hy2.onChange = { [weak self] in self?.router.apply() }
         news.translate = { [weak self] texts, source in await self?.translator.translate(texts, source: source, target: LanguageUtil.target(self?.settings.prefs.translateTarget ?? "")) }

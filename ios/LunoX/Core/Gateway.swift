@@ -50,6 +50,56 @@ final class GatewayClient: NSObject, URLSessionDelegate {
     }()
     @MainActor init(settings: Settings) { self.settings = settings }
 
+    // MARK: through the built-in Hysteria2 tunnel
+    /// Set by the store. When TCP 8443 to the server is blocked on the way but the tunnel (UDP) works, gateway calls ride the tunnel.
+    @MainActor weak var hy2: Hy2Manager?
+    private let flag = NSLock()
+    private var hy2Until = Date.distantPast
+    private var viaSession: URLSession?
+    private var viaPort: UInt16 = 0
+
+    @MainActor private func tunnelSession() -> URLSession? {
+        guard let h = hy2, h.running, h.port != 0, let p = NWEndpoint.Port(rawValue: h.port) else { return nil }
+        if let s = viaSession, viaPort == h.port { return s }
+        let c = URLSessionConfiguration.ephemeral
+        c.timeoutIntervalForRequest = 20; c.waitsForConnectivity = false
+        c.tlsMinimumSupportedProtocolVersion = .TLSv12
+        var pc = ProxyConfiguration(httpCONNECTProxy: .hostPort(host: "127.0.0.1", port: p), tlsOptions: nil)
+        pc.applyCredential(username: "lunox", password: h.token)
+        c.proxyConfigurations = [pc]
+        let s = URLSession(configuration: c, delegate: self, delegateQueue: nil)
+        viaSession = s; viaPort = h.port
+        return s
+    }
+    private var preferTunnel: Bool { flag.lock(); defer { flag.unlock() }; return Date() < hy2Until }
+    private func setPreferTunnel(_ on: Bool) { flag.lock(); hy2Until = on ? Date().addingTimeInterval(600) : .distantPast; flag.unlock() }
+
+    /// Direct first (certificate-pinned); if the direct path fails at the network level, retry through the tunnel and remember that for 10 minutes.
+    private func fetch(_ r: URLRequest) async throws -> (Data, URLResponse) {
+        if preferTunnel, let t = await tunnelSession() {
+            if let ok = try? await t.data(for: r) { return ok }
+            setPreferTunnel(false)
+        }
+        do { return try await session.data(for: r) }
+        catch let e as URLError where [.secureConnectionFailed, .cannotConnectToHost, .timedOut, .networkConnectionLost, .cannotFindHost, .notConnectedToInternet].contains(e.code) {
+            guard let t = await tunnelSession() else { throw e }
+            let ok = try await t.data(for: r)
+            setPreferTunnel(true)
+            return ok
+        }
+    }
+
+    /// For the diagnostics page: /v1/health through the tunnel.
+    func healthViaTunnel() async -> (ms: Int?, error: String?) {
+        guard let r = try? await makeRequest("/v1/health", timeout: 8), let t = await tunnelSession() else { return (nil, "Hysteria2 未运行") }
+        let t0 = Date()
+        do {
+            let (_, resp) = try await t.data(for: r)
+            guard (resp as? HTTPURLResponse)?.statusCode == 200 else { return (nil, "HTTP \((resp as? HTTPURLResponse)?.statusCode ?? 0)") }
+            return (Int(Date().timeIntervalSince(t0) * 1000), nil)
+        } catch { return (nil, error.localizedDescription) }
+    }
+
     // Snapshot of config (read on main, used anywhere)
     private struct Cfg { var host: String; var port: Int; var key: String; var pin: String; var pinned: Bool }
     /// Set by EdgeSelector when the Cloudflare route is the fastest; nil = talk to the server directly (certificate-pinned).
@@ -87,7 +137,7 @@ final class GatewayClient: NSObject, URLSessionDelegate {
     }
 
     private func send(_ r: URLRequest) async throws -> (Data, HTTPURLResponse) {
-        let (d, resp) = try await session.data(for: r)
+        let (d, resp) = try await fetch(r)
         guard let h = resp as? HTTPURLResponse else { throw GatewayError.bad }
         guard h.statusCode == 200 else { throw GatewayError.http(h.statusCode) }
         return (d, h)
@@ -243,7 +293,9 @@ final class GatewayClient: NSObject, URLSessionDelegate {
                 do {
                     let body = try JSONSerialization.data(withJSONObject: ["task": task, "args": args])
                     let r = try await makeRequest("/v1/ai/stream", method: "POST", body: body, timeout: 90)
-                    let (bytes, resp) = try await session.bytes(for: r)
+                    var sess = session
+                    if preferTunnel, let t = await tunnelSession() { sess = t }
+                    let (bytes, resp) = try await sess.bytes(for: r)
                     guard let h = resp as? HTTPURLResponse, h.statusCode == 200 else { throw GatewayError.http((resp as? HTTPURLResponse)?.statusCode ?? 0) }
                     if let b64 = h.value(forHTTPHeaderField: "x-lunox-sources"), let d = Data(base64Encoded: b64),
                        let hits = try? JSONDecoder().decode([SearchHit].self, from: d) { sources(hits) }
@@ -280,7 +332,7 @@ final class GatewayClient: NSObject, URLSessionDelegate {
     }
     func pullSync(bucket: String) async throws -> Data? {
         let r = try await makeRequest("/v1/sync/\(bucket)")
-        let (d, resp) = try await session.data(for: r)
+        let (d, resp) = try await fetch(r)
         guard let h = resp as? HTTPURLResponse else { throw GatewayError.bad }
         if h.statusCode == 404 { return nil }
         guard h.statusCode == 200 else { throw GatewayError.http(h.statusCode) }

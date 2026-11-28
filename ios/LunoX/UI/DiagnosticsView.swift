@@ -62,7 +62,12 @@ final class Diagnostics: ObservableObject {
             let d = await store.gateway.ping(host: p.gatewayHost, port: p.gatewayPort, pinned: true)
             directMs = d.ms
             if let ms = d.ms { set(1, .ok, "\(Int(ms / 2)) ms") }
-            else { set(1, .fail, (d.error ?? "无法连接") + "\n常见原因：云服务商安全组没放行 TCP \(p.gatewayPort)；证书指纹不一致；服务没运行。") }
+            else {
+                // direct TCP failed: can the server still be reached through the Hysteria2 tunnel?
+                let t = await store.gateway.healthViaTunnel()
+                if let ms = t.ms { set(1, .warn, "直连不通（\(d.error ?? "无法连接")），但经 Hysteria2 隧道可达（\(ms) ms）。App 会自动走隧道访问网关，AI/搜索/同步可用。") }
+                else { set(1, .fail, (d.error ?? "无法连接") + "\n隧道里也连不上：\(t.error ?? "")\n常见原因：证书指纹不一致；网关服务没运行；云安全组没放行 TCP \(p.gatewayPort)。") }
+            }
             // 2 edge
             steps[2].state = .running
             if p.edgeHost.isEmpty { set(2, .warn, "App 还没有 Cloudflare 地址（先在服务器运行 edge.sh，且网关要能连上）") }
