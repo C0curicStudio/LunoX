@@ -200,9 +200,16 @@ enum NewsParse {
 
     static func merge(_ parts: [[Article]], cap: Int = 48) -> [Article] {
         var seen = Set<String>(), out: [Article] = []
-        for a in parts.flatMap({ $0 }).sorted(by: { ($0.ts == 0 ? -1 : $0.ts) > ($1.ts == 0 ? -1 : $1.ts) }) {
-            let k = a.title.lowercased().filter { $0.isLetter || $0.isNumber }.prefix(60)
-            if seen.insert(String(k)).inserted { out.append(a) }
+        let all: [Article] = parts.flatMap { $0 }
+        let sorted: [Article] = all.sorted { (x: Article, y: Article) -> Bool in
+            let tx: Double = x.ts == 0 ? -1 : Double(x.ts)
+            let ty: Double = y.ts == 0 ? -1 : Double(y.ts)
+            return tx > ty
+        }
+        for a in sorted {
+            let letters: String = a.title.lowercased().filter { $0.isLetter || $0.isNumber }
+            let k = String(letters.prefix(60))
+            if seen.insert(k).inserted { out.append(a) }
         }
         return Array(out.prefix(cap))
     }
