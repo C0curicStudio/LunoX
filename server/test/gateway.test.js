@@ -73,3 +73,17 @@ test('client ip is taken from CF-Connecting-IP only for loopback peers', () => {
   assert.equal(sec.clientIp(mk('127.0.0.1', { 'cf-connecting-ip': '9.9.9.9' })), '9.9.9.9');
   assert.equal(sec.clientIp(mk('8.8.8.8', { 'cf-connecting-ip': '9.9.9.9' })), '8.8.8.8');
 });
+
+test('RSS/Atom/YouTube feed parsing', () => {
+  const { parseFeed } = require('../src/news');
+  const rss = `<rss><channel><item><title><![CDATA[Big &amp; bold]]></title><link>https://ex.com/a</link><pubDate>Fri, 28 Nov 2026 10:00:00 GMT</pubDate>
+    <description><![CDATA[<p>Hello <b>world</b></p>]]></description><media:thumbnail url="https://ichef.bbci.co.uk/news/240/cpsprodpb/x.jpg" width="240"/>
+    <media:thumbnail url="https://ichef.bbci.co.uk/news/976/cpsprodpb/x.jpg" width="976"/></item></channel></rss>`;
+  const [a] = parseFeed(rss, 'T');
+  assert.equal(a.title, 'Big & bold'); assert.equal(a.summary, 'Hello world'); assert.equal(a.url, 'https://ex.com/a');
+  assert.ok(a.image.includes('976')); assert.ok(a.ts > 0);
+  const yt = `<feed><entry><title>Clip</title><link rel="alternate" href="https://www.youtube.com/watch?v=abcdefghijk"/><yt:videoId>abcdefghijk</yt:videoId><published>2026-11-28T09:00:00+00:00</published></entry></feed>`;
+  const [v] = parseFeed(yt, 'Y');
+  assert.deepEqual(v.video, { kind: 'youtube', id: 'abcdefghijk' }); assert.ok(v.image.includes('abcdefghijk'));
+  assert.deepEqual(parseFeed('<rss><item><title>x</title><link>javascript:alert(1)</link></item></rss>', 'Z'), []);
+});

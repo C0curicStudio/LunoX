@@ -10,6 +10,7 @@ const { handleConnect, stats } = require('./proxy');
 const { handleUpgrade } = require('./tunnel');
 const llm = require('./llm');
 const misc = require('./misc');
+const newsApi = require('./news');
 
 const SEC_HEADERS = {
   'x-content-type-options': 'nosniff',
@@ -108,6 +109,14 @@ async function route(req, res) {
     r.stream.on('error', () => {}); r.stream.destroy();
     return send(res, 200, { status: r.status, ms: Date.now() - t0 });
   }
+
+  if (req.method === 'GET' && p === '/v1/news') {
+    const cat = url.searchParams.get('cat') || 'explore';
+    if (cat !== 'explore' && !newsApi.CATS.includes(cat)) return send(res, 400, { error: 'unknown category' });
+    return send(res, 200, { cat, updated: Date.now(), items: await newsApi.news(cat) });
+  }
+  if (req.method === 'GET' && p === '/v1/news/scores') return send(res, 200, { items: await newsApi.scores() });
+  if (req.method === 'GET' && p === '/v1/news/trends') return send(res, 200, { items: await newsApi.trends(url.searchParams.get('geo') || 'US') });
 
   if (req.method === 'GET' && p === '/v1/suggest') {
     return send(res, 200, { items: await misc.suggest(url.searchParams.get('q'), url.searchParams.get('engine') || 'google').catch(() => []) });
