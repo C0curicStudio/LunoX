@@ -54,7 +54,7 @@ struct TemplateRoute: Equatable {
     }
 }
 
-struct TItem: Identifiable, Equatable {
+struct TItem: Identifiable, Equatable, Codable {
     var id: String                 // video id / BV id
     var platform: SitePlatform
     var title: String
@@ -65,7 +65,7 @@ struct TItem: Identifiable, Equatable {
     var meta: String               // "154,460 次观看 · 2 天前"
 }
 
-struct TDetail: Equatable {
+struct TDetail: Equatable, Codable {
     var title: String
     var author: String
     var avatar: String?
@@ -196,10 +196,40 @@ enum SiteParse {
 
 // MARK: - data
 
+/// Last good answer per page, on disk: opening a templated page paints instantly from here, then refreshes in the background.
+struct TemplateCache {
+    private static let dir = Paths.dir("Templates", excludeFromBackup: true)
+    private struct Box: Codable { var at: Date; var items: [TItem]; var detail: TDetail? }
+    private static func file(_ key: String) -> URL { dir.appendingPathComponent(key.sha256Hex + ".json") }
+    static func load(_ key: String) -> (items: [TItem], detail: TDetail?, age: TimeInterval)? {
+        guard let d = try? Data(contentsOf: file(key)), let b = try? JSONDecoder().decode(Box.self, from: d) else { return nil }
+        return (b.items, b.detail, Date().timeIntervalSince(b.at))
+    }
+    static func save(_ key: String, items: [TItem], detail: TDetail? = nil) {
+        guard !items.isEmpty || detail != nil, let d = try? JSONEncoder().encode(Box(at: Date(), items: items, detail: detail)) else { return }
+        let u = file(key)
+        DispatchQueue.global(qos: .utility).async { try? d.write(to: u, options: .atomic) }
+    }
+    static func feedKey(_ p: SitePlatform, _ q: String?) -> String { "feed|\(p.rawValue)|\(q ?? "")" }
+    static func watchKey(_ p: SitePlatform, _ id: String) -> String { "watch|\(p.rawValue)|\(id)" }
+}
+
 @MainActor
 final class TemplateService {
     private let engine: NewsEngine
     init(engine: NewsEngine) { self.engine = engine }
+
+    /// After launch: refresh both home feeds and their first thumbnails so the first tap on YouTube / Bilibili is already on screen.
+    func warmUp() {
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            for p in SitePlatform.allCases {
+                if let c = TemplateCache.load(TemplateCache.feedKey(p, nil)), c.age < 600 { continue }
+                guard let items = await self?.feed(p, query: nil) else { continue }
+                for it in items.prefix(6) { if let t = it.thumb { _ = await ImageStore.shared.load(t) } }
+            }
+        }
+    }
 
     private let desktopUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
     private func get(_ s: String, desktop: Bool = false) async -> Data? {
@@ -220,11 +250,13 @@ final class TemplateService {
     }
 
     func feed(_ platform: SitePlatform, query: String?) async -> [TItem] {
-        let direct = await feedDirect(platform, query: query)
-        if !direct.isEmpty || platform != .youtube { return direct }
-        let path = query.map { "/search?q=\(esc($0))&filter=videos" } ?? "/trending?region=US"
-        guard let d = await pipedData(path) else { return [] }
-        return SiteParse.pipedItems(try? JSONSerialization.jsonObject(with: d))
+        var r = await feedDirect(platform, query: query)
+        if r.isEmpty, platform == .youtube {
+            let path = query.map { "/search?q=\(esc($0))&filter=videos" } ?? "/trending?region=US"
+            if let d = await pipedData(path) { r = SiteParse.pipedItems(try? JSONSerialization.jsonObject(with: d)) }
+        }
+        TemplateCache.save(TemplateCache.feedKey(platform, query), items: r)
+        return r
     }
 
     private func feedDirect(_ platform: SitePlatform, query: String?) async -> [TItem] {

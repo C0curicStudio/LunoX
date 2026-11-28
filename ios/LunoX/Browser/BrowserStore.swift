@@ -291,6 +291,7 @@ final class BrowserStore: ObservableObject {
         }
         if let hp = URL(string: settings.prefs.homepage), !settings.prefs.homepage.isEmpty, current?.isBlank == true { current?.navigate(hp) }
         if settings.prefs.syncBookmarks { Task { await sync() } }
+        if settings.prefs.nativeTemplates { templates.warmUp() }
     }
 
     // MARK: data

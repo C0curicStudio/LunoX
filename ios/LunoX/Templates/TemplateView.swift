@@ -148,25 +148,29 @@ struct TemplateView: View {
     }
 
     private func load(force: Bool) async {
-        loading = true; failed = false
+        failed = false
         let svc = store.templates
         switch route.kind {
         case .feed(let q):
-            let r = await svc.feed(route.platform, query: q)
-            withAnimation(Motion.smooth) { items = r }
-            failed = r.isEmpty
+            // paint the last good copy at once, then refresh behind it
+            if items.isEmpty, let c = TemplateCache.load(TemplateCache.feedKey(route.platform, q)) { items = c.items; loading = false } else { loading = items.isEmpty }
             tab.title = (q ?? route.platform.name) + " – " + route.platform.name
-            tab.templateReady(thumb: r.first?.thumb)
+            tab.templateReady(thumb: items.first?.thumb)
+            let r = await svc.feed(route.platform, query: q)
+            if !r.isEmpty { withAnimation(Motion.smooth) { items = r }; tab.templateReady(thumb: r.first?.thumb) }
+            failed = items.isEmpty
         case .watch(let id):
-            async let d = svc.detail(route.platform, id: id)
-            let got = await d
-            withAnimation(Motion.smooth) { detail = got?.0; related = got?.1 ?? [] }
-            if let t = got?.0.title { tab.title = t }
+            if detail == nil, let c = TemplateCache.load(TemplateCache.watchKey(route.platform, id)) { detail = c.detail; related = c.items; loading = false } else { loading = detail == nil && related.isEmpty }
+            if let t = detail?.title { tab.title = t }
             if route.platform == .youtube { tab.templateReady(thumb: "https://i.ytimg.com/vi/\(id)/hqdefault.jpg") }
-            if related.isEmpty {
-                let rel = await svc.related(route.platform, id: id, title: got?.0.title ?? "")
-                withAnimation(Motion.smooth) { related = rel }
+            let got = await svc.detail(route.platform, id: id)
+            withAnimation(Motion.smooth) { if let g = got { detail = g.0; if !g.1.isEmpty { related = g.1 } } }
+            if let t = got?.0.title { tab.title = t }
+            if got?.1.isEmpty ?? true {
+                let rel = await svc.related(route.platform, id: id, title: got?.0.title ?? detail?.title ?? "")
+                if !rel.isEmpty { withAnimation(Motion.smooth) { related = rel } }
             }
+            TemplateCache.save(TemplateCache.watchKey(route.platform, id), items: related, detail: detail)
             failed = detail == nil && related.isEmpty
         }
         loading = false
