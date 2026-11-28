@@ -13,6 +13,7 @@ struct BottomChrome: View {
     var onTabs: () -> Void
     var onReader: () -> Void
     var onTranslate: () -> Void
+    @State private var reloadTick = 0
 
     var body: some View {
         let collapsed = store.barsCollapsed && !tab.isBlank
@@ -25,7 +26,10 @@ struct BottomChrome: View {
         .padding(.horizontal, collapsed ? 80 : 16)
         .padding(.bottom, 6)
         .opacity(searching ? 0 : 1).scaleEffect(searching ? 0.96 : 1, anchor: .bottom)
-        .animation(.spring(response: 0.4, dampingFraction: 0.86), value: collapsed)
+        .animation(Motion.bouncy, value: collapsed)
+        .animation(Motion.snappy, value: tab.canTranslate)
+        .animation(Motion.snappy, value: tab.readable)
+        .animation(Motion.snappy, value: tab.translated)
     }
 
     private func omnibox(collapsed: Bool) -> some View {
@@ -37,7 +41,8 @@ struct BottomChrome: View {
 
             HStack(spacing: 10) {
                 if !collapsed {
-                    Button { Haptics.tap(); onSite() } label: { siteIcon.frame(width: 30, height: 36).contentShape(Rectangle()) }.buttonStyle(.plain)
+                    Button { Haptics.tap(); onSite() } label: { siteIcon.frame(width: 30, height: 36).contentShape(Rectangle()) }.buttonStyle(PressableStyle(scale: 0.85))
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
                 Text(tab.isBlank ? "搜索或输入网址" : (tab.url?.displayHost ?? ""))
                     .font(.system(size: collapsed ? 13 : 16, weight: .medium, design: .rounded)).contentTransition(.opacity).animation(.easeInOut(duration: 0.2), value: tab.url)
@@ -58,9 +63,10 @@ struct BottomChrome: View {
                     }.buttonStyle(PressableStyle(scale: 0.85)).transition(.scale.combined(with: .opacity))
                 }
                 if !collapsed && !tab.isBlank {
-                    Button { Haptics.tap(); tab.isLoading ? tab.stop() : tab.reload() } label: {
+                    Button { Haptics.tap(); reloadTick += 1; tab.isLoading ? tab.stop() : tab.reload() } label: {
                         Image(systemName: tab.isLoading ? "xmark" : "arrow.clockwise").font(.system(size: 15, weight: .semibold)).foregroundStyle(theme.inkSoft).frame(width: 34, height: 40).contentShape(Rectangle())
-                    }.buttonStyle(.plain)
+                            .contentTransition(.symbolEffect(.replace)).symbolEffect(.bounce, value: reloadTick)
+                    }.buttonStyle(PressableStyle(scale: 0.85)).transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
             }
             .padding(.horizontal, collapsed ? 14 : 12)
@@ -100,7 +106,7 @@ struct BottomChrome: View {
             bar("plus", on: true) { store.newTab(isPrivate: tab.isPrivate) }
             ZStack {
                 bar("square.on.square", on: true) { onTabs() }
-                Text("\(store.tabs.filter { $0.isPrivate == tab.isPrivate }.count)")
+                Text("\(store.tabs.filter { $0.isPrivate == tab.isPrivate }.count)").contentTransition(.numericText())
                     .font(.system(size: 9, weight: .bold, design: .rounded)).foregroundStyle(theme.ink).offset(x: 0.5, y: 1.5).allowsHitTesting(false)
             }
             bar("ellipsis", on: true, action: onMenu)

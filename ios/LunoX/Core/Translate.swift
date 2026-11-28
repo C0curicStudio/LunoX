@@ -88,15 +88,17 @@ extension View {
     }
 }
 
-/// Apple on-device translation first; the server's AI model is the fallback (older iOS, unsupported pair).
+/// Apple's on-device Translation framework only. The server AI is used solely when the user opted in (older iOS / unsupported pair).
 @MainActor
 final class Translator: ObservableObject {
     let coord = TranslationCoordinator()
     private let gateway: GatewayClient
+    var allowAIFallback = false
     init(gateway: GatewayClient) { self.gateway = gateway }
 
     func translate(_ texts: [String], source: String?, target: String) async -> [String]? {
         if #available(iOS 18.0, *), let r = await coord.run(texts: texts, source: source, target: target), r.count == texts.count { return r }
+        guard allowAIFallback else { return nil }            // page text never leaves the phone unless the user opted in
         return try? await gateway.translateBatch(texts, target: target)
     }
 }

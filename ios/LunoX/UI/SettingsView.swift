@@ -97,8 +97,9 @@ struct GeneralSettings: View {
                     ForEach(LanguageUtil.supported, id: \.code) { Text($0.name).tag($0.code) }
                 } label: { RowLabel(icon: "character.bubble", title: "翻译成") }
                 Toggle(isOn: $settings.prefs.autoTranslate) { RowLabel(icon: "wand.and.stars", title: "自动翻译外语网页") }
+                Toggle(isOn: $settings.prefs.translateAIFallback) { RowLabel(icon: "sparkles", title: "苹果翻译不可用时用服务器 AI") }
             } header: { Text("翻译").textCase(nil) }
-            footer: { Text("自动识别网页语言，在页面内就地翻译（iOS 18 以上使用系统离线翻译，首次会下载语言包；其余情况由服务器 AI 翻译）。") }.sectionStyle(theme.surface)
+            footer: { Text("使用 Apple 系统翻译：网页文字只在手机上处理。每个语言首次使用时系统会弹出它自己的下载提示，下载一次后离线秒翻。服务器 AI 默认关闭（开启后网页文字会发送到你的服务器和模型）。") }.sectionStyle(theme.surface)
             Section {
                 Toggle(isOn: $settings.prefs.searchSuggest) { RowLabel(icon: "text.magnifyingglass", title: "搜索建议") }
                 Toggle(isOn: $settings.prefs.restoreTabs) { RowLabel(icon: "arrow.counterclockwise", title: "启动时恢复标签页") }
@@ -250,6 +251,8 @@ struct PrivacySettings: View {
                 Toggle(isOn: $settings.prefs.blockTrackers) { RowLabel(icon: "hand.raised", title: "拦截广告与跟踪器") }
                 Toggle(isOn: $settings.prefs.httpsOnly) { RowLabel(icon: "lock", title: "仅 HTTPS（自动升级）") }
                 Toggle(isOn: $settings.prefs.blockPopups) { RowLabel(icon: "rectangle.on.rectangle.slash", title: "拦截弹出窗口") }
+                Toggle(isOn: $settings.prefs.blockAppPrompts) { RowLabel(icon: "arrow.up.forward.app", title: "拦截“打开 App”提示与跳转") }
+                Toggle(isOn: $settings.prefs.blockForcedLogin) { RowLabel(icon: "person.crop.circle.badge.xmark", title: "移除强制登录弹窗") }
                 Toggle(isOn: $settings.prefs.appLock) { RowLabel(icon: "faceid", title: "Face ID / 密码锁定") }
             }.sectionStyle(theme.surface)
             Section {

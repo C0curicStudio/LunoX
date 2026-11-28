@@ -50,7 +50,7 @@ extension UIFont {
 
 struct Suggestion: Identifiable, Hashable {
     enum Kind { case go, search, bookmark, history, offline, remote, ai }
-    let id = UUID()
+    var id: String { "\(kind)|\(value)|\(title)" }
     var kind: Kind
     var title: String
     var subtitle = ""
@@ -77,12 +77,14 @@ struct SearchOverlay: View {
                 ScrollView {
                     LazyVStack(spacing: 4) {
                         ForEach(rows) { r in
-                            Button { pick(r) } label: { row(r) }.buttonStyle(.plain)
+                            Button { pick(r) } label: { row(r) }.buttonStyle(PressableStyle(scale: 0.98))
+                                .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
                         }
                     }
                     .padding(.horizontal, 12).padding(.top, 70)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .animation(Motion.snappy, value: rows.map(\.id))
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass").foregroundStyle(theme.inkSoft)
                     OmniField(text: $text, placeholder: "搜索或输入网址", onSubmit: { submit() })

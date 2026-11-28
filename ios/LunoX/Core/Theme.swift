@@ -161,7 +161,7 @@ struct PressableStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? scale : 1)
             .opacity(configuration.isPressed ? 0.92 : 1)
-            .animation(.spring(response: 0.28, dampingFraction: 0.62), value: configuration.isPressed)
+            .animation(.snappy(duration: 0.28, extraBounce: 0.3), value: configuration.isPressed)
     }
 }
 
@@ -170,7 +170,17 @@ extension View {
     func staggered(_ index: Int, _ shown: Bool, rise: CGFloat = 16) -> some View {
         self.opacity(shown ? 1 : 0)
             .offset(y: shown ? 0 : rise)
-            .scaleEffect(shown ? 1 : 0.96)
-            .animation(.spring(response: 0.5, dampingFraction: 0.82).delay(Double(min(index, 14)) * 0.028), value: shown)
+            .scaleEffect(shown ? 1 : 0.94, anchor: .bottom)
+            .blur(radius: shown ? 0 : 5)
+            .animation(.spring(response: 0.62, dampingFraction: 0.78).delay(Double(min(index, 14)) * 0.032), value: shown)
     }
+}
+
+
+/// One vocabulary of motion so every screen feels the same.
+enum Motion {
+    static let smooth = Animation.smooth(duration: 0.42)
+    static let snappy = Animation.snappy(duration: 0.34)
+    static let bouncy = Animation.spring(response: 0.52, dampingFraction: 0.74)
+    static let hero = Animation.spring(response: 0.56, dampingFraction: 0.84)
 }

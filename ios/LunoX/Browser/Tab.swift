@@ -142,7 +142,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         cfg.preferences.isFraudulentWebsiteWarningEnabled = true
         let ucc = WKUserContentController()
         ucc.add(store.scriptHandler, contentWorld: NativeAdapter.world, name: "luno")
-        ucc.addUserScript(NativeAdapter.userScript(native: s.prefs.nativeMode, hideCookies: s.prefs.hideCookieBanners, autoDark: s.prefs.autoDarkPages && store.isDark, accent: store.accentHex))
+        ucc.addUserScript(NativeAdapter.userScript(native: s.prefs.nativeMode, hideCookies: s.prefs.hideCookieBanners, autoDark: s.prefs.autoDarkPages && store.isDark, accent: store.accentHex, blockApps: s.prefs.blockAppPrompts, blockLogin: s.prefs.blockForcedLogin))
         store.extensions.userScripts().forEach { ucc.addUserScript($0) }
         if s.prefs.blockTrackers, let list = store.blocker.list { ucc.add(list) }
         cfg.userContentController = ucc
@@ -260,6 +260,9 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
             detectLanguage(sample: (body["sample"] as? String) ?? "")
             syncInset()
             if fixedBottom > 0, store.current === self { store.setBars(collapsed: true) }   // the page has its own bottom bar: stay out of its way
+        case "blocked":
+            let kind = (body["kind"] as? String) ?? ""
+            flash(kind == "login" ? "已移除强制登录弹窗" : "已隐藏“打开 App”提示"); Haptics.soft()
         case "dom-more": if translated, !translating { Task { await translate() } }
         case "meta":
             if let t = body["title"] as? String, !t.isEmpty { title = t }
@@ -297,6 +300,12 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         }
     }
 
+    /// Short-lived status pill (blocked jumps, popups removed...).
+    func flash(_ text: String) {
+        note = text
+        Task { try? await Task.sleep(nanoseconds: 3_200_000_000); if note == text { note = nil } }
+    }
+
     // MARK: translation
 
     private func detectLanguage(sample: String) {
@@ -314,8 +323,9 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         guard let pack = await js("window.__luno.translateCollect()") as? [String: Any],
               let ids = pack["ids"] as? [Int], let texts = pack["texts"] as? [String], !texts.isEmpty else { return }
         let target = store.settings.translateTarget
+        store.translator.allowAIFallback = store.settings.prefs.translateAIFallback
         guard let out = await store.translator.translate(texts, source: pageLang, target: target), out.count == texts.count else {
-            note = "翻译失败：请检查语言包下载，或在 设置 › 智能与 AI 配置模型"; Haptics.warn(); return
+            note = "翻译失败：请在系统弹出的提示里下载该语言包后重试"; Haptics.warn(); return
         }
         _ = try? await webView?.callAsyncJavaScript("window.__luno.translateApply(ids, texts)", arguments: ["ids": ids, "texts": out], in: nil, contentWorld: NativeAdapter.world)
         if !translated { Haptics.ok() }
@@ -355,10 +365,12 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
             return (.cancel, preferences)
         case "blob": return (.allow, preferences)
         case "data": return (action.targetFrame?.isMainFrame == false ? .allow : .cancel, preferences)
-        case "tel", "mailto", "sms", "facetime", "maps", "itms-apps", "itms-appss":
+        case "tel", "mailto", "sms", "facetime":
             if action.navigationType == .linkActivated || Date().timeIntervalSince(lastTouch) < 2 { UIApplication.shared.open(url, options: [:], completionHandler: nil) }
             return (.cancel, preferences)
-        default: return (.cancel, preferences)      // javascript:, file:, unknown app schemes
+        default:                                    // javascript:, file:, and every app-jump scheme (weixin://, taobao://, itms-apps://…)
+            if store.settings.prefs.blockAppPrompts { flash("已拦截跳转 App：\(scheme)") }
+            return (.cancel, preferences)
         }
         let isMain = action.targetFrame?.isMainFrame ?? true
         guard isMain else { return (.allow, preferences) }
@@ -395,6 +407,9 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         if let u = webView.url, u.scheme != "about" { url = u }
         if loadingArchive { showingCachedCopy = true }
         translated = false; canTranslate = false; translateDismissed = false; pageLang = nil
+        let site = store.settings.site(webView.url?.host)
+        let p = store.settings.prefs
+        Task { _ = await js("window.__luno && window.__luno.setFilter(\(p.blockAppPrompts && !site.allowNags), \(p.blockForcedLogin && !site.allowNags))") }
         webView.scrollView.pinchGestureRecognizer?.isEnabled = false
         favicon = webView.url?.host.flatMap { store.icon(for: $0) }
     }

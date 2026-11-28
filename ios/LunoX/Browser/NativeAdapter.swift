@@ -7,12 +7,14 @@ import WebKit
 enum NativeAdapter {
     static let world = WKContentWorld.world(name: "luno")
 
-    static func userScript(native: Bool, hideCookies: Bool, autoDark: Bool, accent: String) -> WKUserScript {
+    static func userScript(native: Bool, hideCookies: Bool, autoDark: Bool, accent: String, blockApps: Bool, blockLogin: Bool) -> WKUserScript {
         let src = js
             .replacingOccurrences(of: "__NATIVE__", with: native ? "true" : "false")
             .replacingOccurrences(of: "__COOKIES__", with: hideCookies ? "true" : "false")
             .replacingOccurrences(of: "__AUTODARK__", with: autoDark ? "true" : "false")
             .replacingOccurrences(of: "__ACCENT__", with: accent)
+            .replacingOccurrences(of: "__APPS__", with: blockApps ? "true" : "false")
+            .replacingOccurrences(of: "__LOGINWALL__", with: blockLogin ? "true" : "false")
         return WKUserScript(source: src, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: world)
     }
 
@@ -249,6 +251,80 @@ enum NativeAdapter {
       document.addEventListener('DOMContentLoaded', function () { fitViewport(); guardViewport(); });
       window.addEventListener('load', function () { idle(function () { setTimeout(adapt, 250); }); });
 
+      // ---------- calm the page: no "open in app" nags, no forced login walls ----------
+      // Kept on purpose: the site's own login buttons / login pages, dialogs you can close, and anything you just tapped open.
+      var filt = { apps: __APPS__, login: __LOGINWALL__, lastUser: 0, done: new WeakSet(), n: 0, timer: null };
+      ['touchstart', 'mousedown', 'click', 'keydown'].forEach(function (e) { document.addEventListener(e, function () { filt.lastUser = Date.now(); }, true); });
+      var APP_RE = /(打开\s*app|下载\s*app|在\s*app\s*(内|中)?\s*打开|去\s*app|用\s*app\s*(打开|查看|看)|立即(下载|打开)|app\s*内(打开|查看)|打开\s*客户端|下载\s*客户端|open (it )?(in|with) (the |our )?app|get the app|download (the|our) app|use (the|our) app|continue in (the )?app|install (the|our) app|try (the|our) app)/i;
+      var LOGIN_RE = /(登录|登入|注册|请先登|扫码登|sign\s?in|log\s?in|sign\s?up|create (an )?account|continue with (google|apple|facebook|email|phone)|join .{0,30}(to|and) (see|view|continue))/i;
+      var CLOSE_TEXT = /^(×|✕|✖|x|close|dismiss|not now|maybe later|skip|no,? thanks|cancel|关闭|取消|暂不|以后再说|稍后|跳过|不用了|知道了|我知道了|以后)$/i;
+      var CLOSE_ATTR = /(close|dismiss|cancel|skip|关闭|取消)/i;
+      function hasClose(el) {
+        var c = el.querySelectorAll('button,a,[role=button],[aria-label],[class*=close],[class*=Close],[id*=close],svg,i,span'), m = Math.min(c.length, 90);
+        for (var i = 0; i < m; i++) {
+          var e = c[i], t = ((e.innerText || e.textContent || '') + '').trim();
+          if (t.length <= 12 && CLOSE_TEXT.test(t)) return true;
+          var a = (e.getAttribute('aria-label') || '') + ' ' + (e.getAttribute('title') || '') + ' ' + (typeof e.className === 'string' ? e.className : '') + ' ' + (e.id || '');
+          if (CLOSE_ATTR.test(a)) return true;
+        }
+        return false;
+      }
+      function onLoginPage() {
+        return /\/(login|signin|sign-in|sign_in|signup|register|passport|accounts?|oauth2?|auth|sso|connect)(\/|$)/i.test(location.pathname) ||
+               /^(login|passport|accounts|auth|sso|id|signin)\./i.test(location.hostname);
+      }
+      function unlockScroll() {
+        var st = document.getElementById('__luno_unlock');
+        if (!st) { st = document.createElement('style'); st.id = '__luno_unlock'; (document.head || document.documentElement).appendChild(st); }
+        st.textContent = 'html,body{overflow:auto!important;position:static!important;touch-action:auto!important}';
+      }
+      function hideEl(el, kind) {
+        el.style.setProperty('display', 'none', 'important'); el.setAttribute('data-luno-hidden', kind);
+        filt.n++; post({ type: 'blocked', kind: kind, n: filt.n });
+      }
+      function judge(el) {
+        if (!el || el.nodeType !== 1 || !el.isConnected || filt.done.has(el) || el.hasAttribute('data-luno-hidden') || el === document.body) return;
+        var cs = getComputedStyle(el);
+        if (cs.display === 'none' || cs.visibility === 'hidden' || +cs.opacity < 0.05) return;
+        var modal = el.getAttribute('role') === 'dialog' || el.getAttribute('aria-modal') === 'true';
+        if (cs.position !== 'fixed' && cs.position !== 'sticky' && !(cs.position === 'absolute' && modal)) return;
+        var r = el.getBoundingClientRect(); if (r.width < 80 || r.height < 30) return;
+        var area = (r.width * r.height) / (innerWidth * innerHeight);
+        var text = ((el.innerText || '') + '').trim(); if (text.length < 4) return;
+        filt.done.add(el);
+        if (filt.apps && APP_RE.test(text)) {
+          var anchors = el.querySelectorAll('a').length;
+          var bannerLike = text.length <= 120 && anchors <= 4 && area < 0.35;          // a small promo bar, not the site's nav header
+          var modalLike = area >= 0.3 && text.length <= 400;                          // a "get the app" sheet / dialog
+          if (bannerLike || modalLike) { hideEl(el, 'app'); if (modalLike) unlockScroll(); return; }
+        }
+        if (filt.login && area >= 0.45 && LOGIN_RE.test(text) && !hasClose(el) && !onLoginPage() && Date.now() - filt.lastUser > 1500) {
+          hideEl(el, 'login'); unlockScroll();
+        }
+      }
+      function sweep(roots) {
+        var list = [], n = 0;
+        (roots && roots.length ? roots : (document.body ? [].slice.call(document.body.children) : [])).forEach(function (el) {
+          if (el.nodeType !== 1) return; list.push(el);
+          if (el.children && el.children.length < 40) for (var i = 0; i < el.children.length && n < 120; i++, n++) list.push(el.children[i]);
+        });
+        list.slice(0, 260).forEach(judge);
+        [].slice.call(document.querySelectorAll('[role=dialog],[aria-modal=true]')).slice(0, 12).forEach(judge);
+      }
+      function watchNags() {
+        if (!document.body || (!filt.apps && !filt.login)) return;
+        var pending = [];
+        new MutationObserver(function (ms) {
+          ms.forEach(function (m) { m.addedNodes && [].forEach.call(m.addedNodes, function (n) { if (n.nodeType === 1) pending.push(n); }); if (m.type === 'attributes') pending.push(m.target); });
+          clearTimeout(filt.timer);
+          filt.timer = setTimeout(function () { var p = pending.splice(0, 80); sweep(p); }, 350);
+        }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden', 'aria-hidden'] });
+        sweep(); setTimeout(sweep, 1200); setTimeout(sweep, 3500);
+      }
+      function setFilter(apps, login) { filt.apps = !!apps; filt.login = !!login; if (apps || login) sweep(); }
+      if (OPT.native) { var mm = document.querySelector('meta[name="apple-itunes-app"]'); if (mm) mm.remove(); }
+      document.addEventListener('DOMContentLoaded', function () { try { watchNags(); } catch (e) {} });
+
       // ---------- in-place translation (text nodes only; originals are kept so the page can be restored) ----------
       var tr = { nodes: {}, orig: {}, next: 1, on: false, observer: null, timer: null };
       var SKIP = /^(SCRIPT|STYLE|NOSCRIPT|CODE|PRE|TEXTAREA|INPUT|SELECT|SVG|CANVAS|KBD|SAMP)$/;
@@ -288,7 +364,7 @@ enum NativeAdapter {
         tr.observer.observe(document.body, { childList: true, subtree: true });
       }
 
-      window.__luno = { translateCollect: translateCollect, translateApply: translateApply, translateRestore: translateRestore, text: text, snapshot: snapshot, run: run, reader: reader, meta: meta, setInset: setInset, setDark: setDark, setAccent: setAccent, adapt: adapt };
+      window.__luno = { setFilter: setFilter, translateCollect: translateCollect, translateApply: translateApply, translateRestore: translateRestore, text: text, snapshot: snapshot, run: run, reader: reader, meta: meta, setInset: setInset, setDark: setDark, setAccent: setAccent, adapt: adapt };
     })();
     """#
 }

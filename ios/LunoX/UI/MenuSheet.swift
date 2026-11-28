@@ -236,6 +236,7 @@ struct SiteInfoView: View {
                     Section("此站点的设置") {
                         Toggle("桌面版网站", isOn: Binding(get: { settings.site(host).desktop }, set: { v in settings.updateSite(host) { $0.desktop = v }; tab.webView?.reload() }))
                         Toggle("允许 JavaScript", isOn: Binding(get: { settings.site(host).javascript }, set: { v in settings.updateSite(host) { $0.javascript = v }; tab.webView?.reload() }))
+                        Toggle("保留此站点的 App 提示与登录弹窗", isOn: Binding(get: { settings.site(host).allowNags }, set: { v in settings.updateSite(host) { $0.allowNags = v }; tab.webView?.reload() }))
                         Toggle("始终通过服务器访问", isOn: Binding(get: { settings.site(host).forceProxy }, set: { v in settings.updateSite(host) { $0.forceProxy = v }; store.router.apply(); tab.webView?.reload() }))
                         Picker("相机", selection: Binding(get: { settings.site(host).camera.map { $0 ? 1 : 2 } ?? 0 }, set: { v in settings.updateSite(host) { $0.camera = v == 0 ? nil : v == 1 } })) { Text("询问").tag(0); Text("允许").tag(1); Text("拒绝").tag(2) }
                         Picker("麦克风", selection: Binding(get: { settings.site(host).microphone.map { $0 ? 1 : 2 } ?? 0 }, set: { v in settings.updateSite(host) { $0.microphone = v == 0 ? nil : v == 1 } })) { Text("询问").tag(0); Text("允许").tag(1); Text("拒绝").tag(2) }

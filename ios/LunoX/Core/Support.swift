@@ -102,6 +102,7 @@ struct SiteSetting: Codable, Hashable {
     var desktop = false
     var javascript = true
     var forceProxy = false
+    var allowNags = false          // true = leave this site's "open in app" / login prompts alone
     var camera: Bool? = nil     // nil = ask
     var microphone: Bool? = nil
 }

@@ -19,7 +19,11 @@ struct RootView: View {
         ZStack {
             background.ignoresSafeArea()
 
-            if let tab = store.current { TabContent(tab: tab).id(tab.id).ignoresSafeArea() }
+            if let tab = store.current {
+                TabContent(tab: tab).id(tab.id).ignoresSafeArea()
+                    .scaleEffect(store.showSwitcher ? 0.9 : 1).blur(radius: store.showSwitcher ? 8 : 0)
+                    .transition(.opacity.combined(with: .scale(scale: 0.985)))
+            }
             if showHero, let t = store.current { HeroSnapshot(tab: t, ns: heroNS).zIndex(1) }
 
             VStack(spacing: 8) {
@@ -46,6 +50,8 @@ struct RootView: View {
             }
         }
         .translationHost(store.translator.coord)
+        .animation(Motion.smooth, value: store.selectedID)
+        .animation(Motion.hero, value: store.showSwitcher)
         .onChange(of: store.searchRequest) { _, _ in openSearch() }
         .sheet(isPresented: $showMenu, onDismiss: { menuRoute = nil; menuDetent = .medium }) {
             MenuSheet(onFind: { withAnimation(.snappy) { showFind = true } }, initialRoute: menuRoute, onDeep: { menuDetent = .large })
@@ -76,14 +82,14 @@ struct RootView: View {
             await t.captureHero()
             showHero = true
             try? await Task.sleep(nanoseconds: 40_000_000)
-            withAnimation(.spring(response: 0.52, dampingFraction: 0.86)) { showHero = false; store.showSwitcher = true }
+            withAnimation(Motion.hero) { showHero = false; store.showSwitcher = true }
         }
     }
 
     /// The chosen card grows back to full screen, then the live page takes over.
     private func pickTab(_ t: Tab) {
         store.selectTab(t)
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.88)) { store.showSwitcher = false; showHero = true }
+        withAnimation(Motion.hero) { store.showSwitcher = false; showHero = true }
         Task { try? await Task.sleep(nanoseconds: 600_000_000); showHero = false }
     }
 }
@@ -115,23 +121,38 @@ struct WebContainer: UIViewRepresentable {
 
 struct StatusPills: View {
     @EnvironmentObject var store: BrowserStore
-    @Environment(\.theme) private var theme
     var body: some View {
         VStack(spacing: 6) {
-            if !store.online {
-                pill("wifi.slash", "离线 · 可打开 \(store.offline.pages.count) 个已缓存页面")
-            }
-            if let t = store.current, t.showingCachedCopy { pill("clock.arrow.circlepath", "离线副本") }
-            if let n = store.current?.note { pill("bolt.horizontal.circle", n) }
+            if !store.online { PillView(icon: "wifi.slash", text: "离线 · 可打开 \(store.offline.pages.count) 个已缓存页面") }
+            if let t = store.current { TabNotes(tab: t) }
         }
         .padding(.top, 54)
-        .animation(.snappy, value: store.online)
+        .animation(Motion.snappy, value: store.online)
         .allowsHitTesting(false)
     }
-    private func pill(_ icon: String, _ text: String) -> some View {
+}
+
+private struct TabNotes: View {
+    @ObservedObject var tab: Tab
+    var body: some View {
+        VStack(spacing: 6) {
+            if tab.showingCachedCopy { PillView(icon: "clock.arrow.circlepath", text: "离线副本") }
+            if let n = tab.note { PillView(icon: "bolt.horizontal.circle", text: n) }
+        }
+        .animation(Motion.bouncy, value: tab.note)
+        .animation(Motion.snappy, value: tab.showingCachedCopy)
+    }
+}
+
+private struct PillView: View {
+    var icon: String
+    var text: String
+    @Environment(\.theme) private var theme
+    var body: some View {
         Label(text, systemImage: icon).font(.system(size: 12, weight: .medium, design: .rounded))
             .foregroundStyle(theme.ink).padding(.horizontal, 12).padding(.vertical, 7)
-            .lunoGlass(Capsule(), interactive: false).transition(.move(edge: .top).combined(with: .opacity))
+            .lunoGlass(Capsule(), interactive: false)
+            .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .scale(scale: 0.8)).combined(with: .opacity), removal: .opacity.combined(with: .scale(scale: 0.9))))
     }
 }
 
