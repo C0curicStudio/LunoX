@@ -90,7 +90,14 @@ final class BrowserStore: ObservableObject {
         Demo.apply(to: s)
         #endif
         warmUp()
+        // The Hysteria2 tunnel must be up BEFORE the first tab loads, otherwise every proxied page of the restored tabs fails.
+        hy2.ensureRunning(enabled: settings.prefs.useHy2)
         Task { await blocker.prepare() ; restore() }
+        Task { [weak self] in                                   // pick up new tunnel parameters if the server's changed (the gateway can be reached through the tunnel)
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard let self, self.settings.gatewayConfigured, let h = await self.gateway.config()?.hy2 else { return }
+            self.hy2.update(h)
+        }
         Task { [weak self] in                                   // keep picking the fastest route into the server
             while let self {
                 await self.edge.measure()

@@ -74,6 +74,12 @@ final class Hy2Manager: ObservableObject {
         #endif
     }
 
+    /// Start the tunnel if it should be on and is not (cold start, back from the background, after an error); otherwise just keep it warm.
+    func ensureRunning(enabled: Bool) {
+        guard enabled, config != nil else { return }
+        if running { warm() } else { start() }
+    }
+
     /// Re-open the QUIC session in the background (app returned to the foreground, network changed).
     func warm() {
         #if canImport(Hy2bridge)

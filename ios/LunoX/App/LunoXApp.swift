@@ -26,7 +26,7 @@ struct LunoXApp: App {
                 }
                 .onChange(of: phase) { _, p in
                     if p == .background { store.persistNow(); if store.settings.prefs.appLock { lock.lock() } }
-                    if p == .active { Task { await store.edge.resume() }; store.hy2.warm() }
+                    if p == .active { Task { await store.edge.resume() }; store.hy2.ensureRunning(enabled: store.settings.prefs.useHy2) }
                     if p == .active, store.settings.prefs.appLock { lock.unlockIfNeeded() }
                 }
         }
