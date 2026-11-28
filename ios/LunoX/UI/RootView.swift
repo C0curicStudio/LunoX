@@ -24,6 +24,7 @@ struct RootView: View {
 
             VStack(spacing: 8) {
                 StatusPills()
+                if let t = store.current { StuckChip(tab: t) { menuRoute = .diagnostics; showMenu = true } }
                 Spacer()
                 if let tab = store.current {
                     if showFind { FindBar(tab: tab) { withAnimation(.snappy) { showFind = false } }.transition(.move(edge: .bottom).combined(with: .opacity)) }
@@ -205,3 +206,18 @@ extension RootView {
     }
 }
 #endif
+
+/// Appears when a page has been blank for 10s: one tap to the connection diagnostics.
+struct StuckChip: View {
+    @ObservedObject var tab: Tab
+    var action: () -> Void
+    @Environment(\.theme) private var theme
+    var body: some View {
+        if tab.stuck {
+            Button(action: action) {
+                Label("加载很慢？点此检查连接", systemImage: "stethoscope").font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundStyle(theme.ink)
+                    .padding(.horizontal, 14).padding(.vertical, 9).lunoGlass(Capsule())
+            }.buttonStyle(PressableStyle()).transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+}

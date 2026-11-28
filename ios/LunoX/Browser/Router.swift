@@ -147,37 +147,38 @@ final class Router: ObservableObject {
 
     func apply() { stores.removeAll { $0.s == nil }; stores.forEach { if let s = $0.s { configure(s) } } }
 
-    private func configure(_ store: WKWebsiteDataStore) {
-        guard settings.gatewayConfigured, settings.prefs.routing != .direct,
-              let port = NWEndpoint.Port(rawValue: UInt16(clamping: settings.prefs.gatewayPort)) else {
-            store.proxyConfigurations = []; return
-        }
-        let mode = settings.prefs.routing
-        var domains = Set(proxied.keys)
-        settings.prefs.forcedProxyDomains.forEach { domains.insert(URLResolver.registrableDomain($0)) }
-        settings.sites.filter { $0.value.forceProxy }.keys.forEach { domains.insert($0) }
-        if mode == .auto && domains.isEmpty { store.proxyConfigurations = []; return }
-
-        if mode == .proxy || !domains.isEmpty, let e = edge, e.usesTunnel {
-            // Fastest route is Cloudflare's edge: talk to the in-app loopback tunnel (WebSocket to the edge).
-            var local = ProxyConfiguration(httpCONNECTProxy: .hostPort(host: "127.0.0.1", port: NWEndpoint.Port(rawValue: e.tunnel.port) ?? port), tlsOptions: nil)
+    /// The proxy WebKit (and the diagnostics) use: the server's HTTPS CONNECT proxy, or the in-app loopback tunnel.
+    func makeConfig(loopback: Bool, matchDomains: [String]?) -> ProxyConfiguration? {
+        if loopback, let e = edge, e.tunnel.port != 0, let p = NWEndpoint.Port(rawValue: e.tunnel.port) {
+            var local = ProxyConfiguration(httpCONNECTProxy: .hostPort(host: "127.0.0.1", port: p), tlsOptions: nil)
             local.applyCredential(username: "lunox", password: e.tunnel.token)
             local.allowFailover = true
-            if mode == .auto { local.matchDomains = Array(domains) }
-            store.proxyConfigurations = [local]
-            return
+            if let m = matchDomains { local.matchDomains = m }
+            return local
         }
+        guard settings.gatewayConfigured, let port = NWEndpoint.Port(rawValue: UInt16(clamping: settings.prefs.gatewayPort)) else { return nil }
         let pin = settings.prefs.gatewayPin
         let tls = NWProtocolTLS.Options()
         sec_protocol_options_set_verify_block(tls.securityProtocolOptions, { _, secTrust, complete in
             let trust = sec_trust_copy_ref(secTrust).takeRetainedValue()
             complete(Pinning.verify(trust: trust, pin: pin))
         }, DispatchQueue.global(qos: .userInitiated))
-
         var cfg = ProxyConfiguration(httpCONNECTProxy: .hostPort(host: NWEndpoint.Host(settings.prefs.gatewayHost), port: port), tlsOptions: tls)
         cfg.applyCredential(username: "lunox", password: settings.gatewayKey)
         cfg.allowFailover = true        // if the gateway is down, fall back to direct instead of a dead page
-        if mode == .auto { cfg.matchDomains = Array(domains) }
-        store.proxyConfigurations = [cfg]
+        if let m = matchDomains { cfg.matchDomains = m }
+        return cfg
+    }
+
+    private func configure(_ store: WKWebsiteDataStore) {
+        guard settings.gatewayConfigured, settings.prefs.routing != .direct else { store.proxyConfigurations = []; return }
+        let mode = settings.prefs.routing
+        var domains = Set(proxied.keys)
+        settings.prefs.forcedProxyDomains.forEach { domains.insert(URLResolver.registrableDomain($0)) }
+        settings.sites.filter { $0.value.forceProxy }.keys.forEach { domains.insert($0) }
+        if mode == .auto && domains.isEmpty { store.proxyConfigurations = []; return }
+        let match: [String]? = mode == .auto ? Array(domains) : nil
+        if let cfg = makeConfig(loopback: edge?.usesTunnel == true, matchDomains: match) { store.proxyConfigurations = [cfg] }
+        else { store.proxyConfigurations = [] }
     }
 }

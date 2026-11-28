@@ -121,6 +121,7 @@ jobs:
           shot 11-extensions safari light menu -push extensions
           shot 11b-network safari light menu -push network
           shot 11c-aisettings safari dark menu -push aisettings
+          shot 11d-diag safari light menu -push diag
           shot 12-ai safari light menu -push ai
           shot 13-private safari light private
           shot 14-find safari light find

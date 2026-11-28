@@ -85,7 +85,7 @@ extension EnvironmentValues { var theme: Theme { get { self[ThemeKey.self] } set
 
 extension View {
     @ViewBuilder
-    func lunoGlass<S: Shape>(_ shape: S, interactive: Bool = true, tint: Color? = nil) -> some View {
+    func lunoGlass<S: Shape>(_ shape: S, interactive: Bool = false, tint: Color? = nil) -> some View {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             if let tint {

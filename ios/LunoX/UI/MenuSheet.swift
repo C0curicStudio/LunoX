@@ -1,7 +1,7 @@
 import SwiftUI
 import WebKit
 
-enum MenuRoute: Hashable { case bookmarks, history, downloads, offline, extensions, themes, settings, ai, reader, network, aiSettings }
+enum MenuRoute: Hashable { case bookmarks, history, downloads, offline, extensions, themes, settings, ai, reader, network, aiSettings, diagnostics }
 
 struct MenuSheet: View {
     @EnvironmentObject var store: BrowserStore
@@ -80,6 +80,7 @@ struct MenuSheet: View {
                 case .reader: if let t = tab { ReaderView(tab: t) }
                 case .network: NetworkSettings()
                 case .aiSettings: AISettings()
+                case .diagnostics: DiagnosticsView()
                 }
             }
         }
@@ -94,7 +95,7 @@ struct MenuSheet: View {
             guard let name = Demo.value("push") else { return }
             try? await Task.sleep(nanoseconds: 1_500_000_000)
             let map: [String: MenuRoute] = ["bookmarks": .bookmarks, "history": .history, "downloads": .downloads, "offline": .offline,
-                                            "extensions": .extensions, "themes": .themes, "settings": .settings, "ai": .ai, "reader": .reader, "network": .network, "aisettings": .aiSettings]
+                                            "extensions": .extensions, "themes": .themes, "settings": .settings, "ai": .ai, "reader": .reader, "network": .network, "aisettings": .aiSettings, "diag": .diagnostics]
             if let r = map[name] { path.append(r) }
         }
         #endif

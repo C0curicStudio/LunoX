@@ -19,6 +19,7 @@ struct Prefs: Codable, Equatable {
     var appLock = false
     var nativeMode = true
     var autoDarkPages = true
+    var preferEdgeTunnel = false
     var hideCookieBanners = true
     var offlineCache = true
     var offlineLimitMB = 300

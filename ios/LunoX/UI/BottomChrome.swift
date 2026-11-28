@@ -28,34 +28,39 @@ struct BottomChrome: View {
     }
 
     private func omnibox(collapsed: Bool) -> some View {
-        HStack(spacing: 10) {
-            if !collapsed {
-                Button { Haptics.tap(); onSite() } label: { siteIcon }.buttonStyle(.plain)
-            }
-            Button(action: onSearch) {
+        ZStack {
+            // the whole capsule is a single tap target; the small buttons sit on top of it
+            Button { Haptics.soft(); if collapsed { store.setBars(collapsed: false) } else { onSearch() } } label: {
+                Color.clear.contentShape(Capsule())
+            }.buttonStyle(.plain)
+
+            HStack(spacing: 10) {
+                if !collapsed {
+                    Button { Haptics.tap(); onSite() } label: { siteIcon.frame(width: 30, height: 36).contentShape(Rectangle()) }.buttonStyle(.plain)
+                }
                 Text(tab.isBlank ? "搜索或输入网址" : (tab.url?.displayHost ?? ""))
                     .font(.system(size: collapsed ? 13 : 16, weight: .medium, design: .rounded)).contentTransition(.opacity).animation(.easeInOut(duration: 0.2), value: tab.url)
                     .foregroundStyle(tab.isBlank ? theme.inkSoft : theme.ink)
                     .lineLimit(1).frame(maxWidth: .infinity, alignment: collapsed ? .center : .leading)
-            }.buttonStyle(.plain)
-            if !collapsed && tab.readable && !tab.isLoading {
-                Button { Haptics.tap(); onReader() } label: {
-                    Image(systemName: "text.page").font(.system(size: 15, weight: .semibold)).foregroundStyle(theme.accent)
-                }.buttonStyle(PressableStyle(scale: 0.85)).transition(.scale.combined(with: .opacity))
+                    .allowsHitTesting(false)
+                if !collapsed && tab.readable && !tab.isLoading {
+                    Button { Haptics.tap(); onReader() } label: {
+                        Image(systemName: "text.page").font(.system(size: 15, weight: .semibold)).foregroundStyle(theme.accent).frame(width: 34, height: 40).contentShape(Rectangle())
+                    }.buttonStyle(PressableStyle(scale: 0.85)).transition(.scale.combined(with: .opacity))
+                }
+                if !collapsed && !tab.isBlank {
+                    Button { Haptics.tap(); tab.isLoading ? tab.stop() : tab.reload() } label: {
+                        Image(systemName: tab.isLoading ? "xmark" : "arrow.clockwise").font(.system(size: 15, weight: .semibold)).foregroundStyle(theme.inkSoft).frame(width: 34, height: 40).contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                }
             }
-            if !collapsed && !tab.isBlank {
-                Button { Haptics.tap(); tab.isLoading ? tab.stop() : tab.reload() } label: {
-                    Image(systemName: tab.isLoading ? "xmark" : "arrow.clockwise").font(.system(size: 15, weight: .semibold)).foregroundStyle(theme.inkSoft)
-                }.buttonStyle(.plain)
-            }
+            .padding(.horizontal, collapsed ? 14 : 12)
         }
-        .padding(.horizontal, collapsed ? 14 : 18)
         .frame(height: collapsed ? 34 : 52)
         .overlay(alignment: .bottom) { progressLine }
         .clipShape(Capsule())
         .lunoGlass(Capsule())
         .matchedGeometryEffect(id: "omni", in: ns, isSource: !searching)
-        .onTapGesture { if collapsed { store.setBars(collapsed: false) } }
     }
 
     @ViewBuilder private var progressLine: some View {

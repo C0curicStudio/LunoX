@@ -6,6 +6,9 @@ struct NewTabView: View {
     @EnvironmentObject var offline: OfflineCache
     @Environment(\.theme) private var theme
     @State private var shown = false
+    @State private var pairMsg: String?
+    @EnvironmentObject private var router: Router
+    @EnvironmentObject private var edge: EdgeSelector
 
     private struct Site: Identifiable { var id: String { url }; let name: String; let url: String }
     private static let defaults: [Site] = [
@@ -38,6 +41,21 @@ struct NewTabView: View {
                     }
                     .padding(.top, 262).staggered(0, shown)
 
+                    if !settings.gatewayConfigured && !isPrivate {
+                        Button { pair() } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "link.badge.plus").font(.system(size: 20)).foregroundStyle(.orange).frame(width: 28)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("尚未连接你的服务器").font(.system(size: 15, weight: .semibold, design: .rounded)).foregroundStyle(theme.ink)
+                                    Text(pairMsg ?? "复制服务器给的 lunox:// 链接，然后点这里一键配对").font(.system(size: 12)).foregroundStyle(theme.inkSoft)
+                                }
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.inkSoft)
+                            }
+                            .padding(.horizontal, 14).padding(.vertical, 12)
+                            .background(theme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        }.buttonStyle(PressableStyle(scale: 0.98)).staggered(1, shown)
+                    }
                     if !isPrivate {
                         section(store.bookmarks.isEmpty ? "常用网站" : "收藏", index: 1) {
                             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 4), spacing: 18) {
@@ -81,6 +99,13 @@ struct NewTabView: View {
             withAnimation { shown = true }
             for s in sites { if let h = URL(string: s.url)?.host { store.ensureIcon(host: h); Prefetch.dns(h) } }
         }
+    }
+
+    private func pair() {
+        let t = (UIPasteboard.general.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if let u = URL(string: t), settings.applySetupLink(u) {
+            pairMsg = "已配对 ✓"; Haptics.ok(); router.apply(); Task { await edge.measure(force: true) }
+        } else { pairMsg = "剪贴板里没有 lunox:// 配对链接"; Haptics.warn() }
     }
 
     private var greeting: String {

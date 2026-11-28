@@ -108,9 +108,18 @@ final class GatewayClient: NSObject, URLSessionDelegate {
         var total = 0.0, colo: String?
         for _ in 0..<2 {
             let t0 = Date()
-            guard let (_, resp) = try? await s.data(for: r), let h = resp as? HTTPURLResponse, h.statusCode == 200 else { return RouteResult(ms: nil, colo: nil) }
-            total += Date().timeIntervalSince(t0) * 1000
-            if let ray = h.value(forHTTPHeaderField: "cf-ray"), let c = ray.split(separator: "-").last { colo = String(c) }
+            do {
+                let (_, resp) = try await s.data(for: r)
+                guard let h = resp as? HTTPURLResponse else { return RouteResult(ms: nil, colo: nil, error: "响应无效") }
+                guard h.statusCode == 200 else {
+                    return RouteResult(ms: nil, colo: nil, error: "HTTP \(h.statusCode)" + (h.statusCode == 401 ? "（访问密钥不对）" : h.statusCode == 429 ? "（被限流/暂时封禁）" : ""))
+                }
+                total += Date().timeIntervalSince(t0) * 1000
+                if let ray = h.value(forHTTPHeaderField: "cf-ray"), let c = ray.split(separator: "-").last { colo = String(c) }
+            } catch {
+                let e = error as NSError
+                return RouteResult(ms: nil, colo: nil, error: "\(e.localizedDescription)（\(e.domain) \(e.code)）")
+            }
         }
         return RouteResult(ms: total, colo: colo)
     }

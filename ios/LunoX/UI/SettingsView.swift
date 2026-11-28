@@ -156,8 +156,10 @@ struct NetworkSettings: View {
                     }.font(.system(size: 17))
                 }
                 Button { Task { await edge.measure(force: true) } } label: { RowLabel(icon: "speedometer", title: edge.measuring ? "测速中…" : "重新测速") }.disabled(edge.measuring)
+                Toggle(isOn: $settings.prefs.preferEdgeTunnel) { RowLabel(icon: "flask", title: "实验：网页流量也走 Cloudflare") }
+                    .onChange(of: settings.prefs.preferEdgeTunnel) { _, _ in router.apply() }
             } header: { Text("线路（自动选择最快）").textCase(nil) }
-            footer: { Text("Cloudflare 边缘地址由服务器自动提供，无需填写。") }.sectionStyle(theme.surface)
+            footer: { Text("Cloudflare 地址由服务器自动提供，无需填写。默认只有直连网关不通时，网页流量才会改走 Cloudflare。") }.sectionStyle(theme.surface)
 
             Section {
                 HStack(spacing: 14) {
@@ -172,7 +174,9 @@ struct NetworkSettings: View {
                     TextField("粘贴 lunox://setup 配置链接", text: $link).textInputAutocapitalization(.never).autocorrectionDisabled()
                     if !link.isEmpty { Button("导入") { importLink() }.fontWeight(.semibold) }
                 }
+                Button { pairFromClipboard() } label: { RowLabel(icon: "doc.on.clipboard", title: "从剪贴板配对", value: "复制 lunox:// 链接后点这里") }
                 Button { Task { await test() } } label: { RowLabel(icon: "waveform.path.ecg", title: testing ? "测试中…" : "测试连接") }.disabled(testing)
+                NavigationLink { DiagnosticsView() } label: { RowLabel(icon: "stethoscope", title: "连接诊断", value: "逐项检查代理链路") }
             } header: { Text("服务器").textCase(nil) }.sectionStyle(theme.surface)
 
             Section {
@@ -200,6 +204,12 @@ struct NetworkSettings: View {
         let k = key.trimmingCharacters(in: .whitespacesAndNewlines)
         if !k.isEmpty { settings.gatewayKey = k; key = "" }
         settings.prefs.gatewayPin = Pinning.normalize(settings.prefs.gatewayPin)
+    }
+    private func pairFromClipboard() {
+        let t = (UIPasteboard.general.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if let u = URL(string: t), settings.applySetupLink(u) {
+            result = "已配对"; router.apply(); Haptics.ok(); Task { await edge.measure(force: true) }
+        } else { result = "剪贴板里没有配对链接"; Haptics.warn() }
     }
     private func importLink() {
         if let u = URL(string: link.trimmingCharacters(in: .whitespacesAndNewlines)), settings.applySetupLink(u) {

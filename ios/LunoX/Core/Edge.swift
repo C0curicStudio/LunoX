@@ -8,7 +8,7 @@ struct Route: Identifiable, Hashable {
     let port: Int
     let isEdge: Bool
 }
-struct RouteResult: Equatable { var ms: Double?; var colo: String? }
+struct RouteResult: Equatable { var ms: Double?; var colo: String?; var error: String? = nil }
 
 /// Measures every way into the server (direct vs Cloudflare edge) and keeps using the fastest one.
 @MainActor
@@ -32,7 +32,11 @@ final class EdgeSelector: ObservableObject {
         return r
     }
     var active: Route? { routes.first { $0.id == activeID } ?? routes.first }
-    var usesTunnel: Bool { active?.isEdge == true && tunnel.port != 0 }
+    /// WebKit traffic only goes through the in-app loopback tunnel when the user opted in, or the server cannot be reached directly.
+    var usesTunnel: Bool {
+        guard active?.isEdge == true, tunnel.port != 0 else { return false }
+        return settings.prefs.preferEdgeTunnel || results["direct"]?.ms == nil
+    }
 
     /// Re-test routes (at most every 4 minutes unless forced) and switch if another is clearly faster.
     func measure(force: Bool = false) async {

@@ -43,6 +43,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
     @Published var hero: UIImage?
     @Published var readable = false
     @Published var fixedBottom = 0
+    @Published var stuck = false
 
     private(set) var webView: WKWebView?
     var restoreState: Data?
@@ -141,11 +142,16 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         return cfg
     }
 
-    /// Full-resolution snapshot used for the zoom-into-card transition.
+    /// Full-resolution snapshot used for the zoom-into-card transition. Never waits more than 0.35s
+    /// (takeSnapshot can stall on a page that has not painted yet, which used to freeze the tab button).
     func captureHero() async {
-        guard let wv = webView, wv.bounds.width > 0 else { return }
+        guard let wv = webView, wv.bounds.width > 0, !isLoading else { return }
         let cfg = WKSnapshotConfiguration(); cfg.snapshotWidth = NSNumber(value: Double(wv.bounds.width))
-        let img: UIImage? = await withCheckedContinuation { c in wv.takeSnapshot(with: cfg) { i, _ in c.resume(returning: i) } }
+        let img: UIImage? = await withCheckedContinuation { (c: CheckedContinuation<UIImage?, Never>) in
+            let once = Once(c)
+            wv.takeSnapshot(with: cfg) { i, _ in once.resume(i) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { once.resume(nil) }
+        }
         if let img { hero = img; thumbnail = img }
     }
 
@@ -167,7 +173,12 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         self.url = url
         let wv = ensureWebView()
         showingCachedCopy = false
-        readable = false; fixedBottom = 0
+        readable = false; fixedBottom = 0; stuck = false
+        Task { [weak self] in                       // still blank after 10s -> offer the connection diagnostics
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
+            guard let self, self.isLoading, self.progress < 0.3, self.url?.host == url.host else { return }
+            self.stuck = true
+        }
         switch store.router.cachedRoute(for: url) {
         case .proxy?: note = "已通过服务器加速"
         case .direct?: note = nil
@@ -351,6 +362,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         let wasArchive = loadingArchive
+        stuck = false
         loadingArchive = false
         guard let u = webView.url, u.scheme == "http" || u.scheme == "https" else { return }
         url = u
@@ -495,5 +507,16 @@ extension UIApplication {
         func top(_ v: UIViewController) -> UIViewController { v.presentedViewController.map(top) ?? v }
         let w = connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows).first { $0.isKeyWindow }
         return w?.rootViewController.map(top)
+    }
+}
+
+/// Resumes a continuation exactly once, from any thread.
+final class Once<T> {
+    private var c: CheckedContinuation<T, Never>?
+    private let lock = NSLock()
+    init(_ c: CheckedContinuation<T, Never>) { self.c = c }
+    func resume(_ v: T) {
+        lock.lock(); let k = c; c = nil; lock.unlock()
+        k?.resume(returning: v)
     }
 }
