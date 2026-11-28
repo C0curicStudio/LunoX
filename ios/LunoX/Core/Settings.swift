@@ -46,6 +46,7 @@ struct Prefs: Codable, Equatable {
     var offlineLimitMB = 300
     var aiEnabled = true
     var searchSuggest = true
+    var smartDirect = true            // a clear target ("youtube", "b站 swift") goes straight to that site
     var restoreTabs = true
     var defaultDesktop = false
     var syncBookmarks = false

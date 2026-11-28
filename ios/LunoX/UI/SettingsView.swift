@@ -102,6 +102,7 @@ struct GeneralSettings: View {
             } header: { Text("翻译").textCase(nil) }
             footer: { Text("使用 Apple 系统翻译：网页文字只在手机上处理。每个语言首次使用时系统会弹出它自己的下载提示，下载一次后离线秒翻。服务器 AI 默认关闭（开启后网页文字会发送到你的服务器和模型）。") }.sectionStyle(theme.surface)
             Section {
+                Toggle(isOn: $settings.prefs.smartDirect) { RowLabel(icon: "arrow.up.right.circle", title: "指向明确时直达网站（不经搜索引擎）") }
                 Toggle(isOn: $settings.prefs.searchSuggest) { RowLabel(icon: "text.magnifyingglass", title: "搜索建议") }
                 Toggle(isOn: $settings.prefs.restoreTabs) { RowLabel(icon: "arrow.counterclockwise", title: "启动时恢复标签页") }
                 Toggle(isOn: $settings.prefs.defaultDesktop) { RowLabel(icon: "desktopcomputer", title: "默认请求桌面版网站") }

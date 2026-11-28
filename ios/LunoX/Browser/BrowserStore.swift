@@ -196,7 +196,11 @@ final class BrowserStore: ObservableObject {
 
     // MARK: omnibox
 
-    func open(_ input: String) {
+    func open(_ input: String, smart: Bool = true) {
+        if smart, settings.prefs.smartDirect, let t = SmartSearch.resolve(input) {
+            if let tab = current { tab.navigate(t.url) } else { newTab(url: t.url) }
+            return
+        }
         guard let url = URLResolver.resolve(input, engine: settings.engine) else { return }
         if let t = current { t.navigate(url) } else { newTab(url: url) }
     }

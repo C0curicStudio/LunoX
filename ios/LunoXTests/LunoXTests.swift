@@ -164,6 +164,21 @@ final class TemplateTests: XCTestCase {
         let p = try? JSONSerialization.jsonObject(with: #"[{"type":"stream","url":"/watch?v=DxgDeW-gIcU","title":"T","uploaderName":"U","duration":125,"views":1500}]"#.data(using: .utf8)!)
         XCTAssertEqual(SiteParse.pipedItems(p).first?.id, "DxgDeW-gIcU"); XCTAssertEqual(SiteParse.pipedItems(p).first?.duration, "2:05")
     }
+    func testSmartSearch() {
+        XCTAssertEqual(SmartSearch.resolve("youtube")?.url.host, "www.youtube.com")
+        XCTAssertEqual(SmartSearch.resolve("YouTube")?.isSearch, false)
+        let b = SmartSearch.resolve("b站 swift教程")
+        XCTAssertEqual(b?.url.host, "search.bilibili.com"); XCTAssertEqual(b?.query, "swift教程"); XCTAssertEqual(b?.isSearch, true)
+        XCTAssertEqual(SmartSearch.resolve("淘宝手机壳")?.query, "手机壳")
+        XCTAssertEqual(SmartSearch.resolve("github swift package")?.url.host, "github.com")
+        XCTAssertEqual(SmartSearch.resolve("知乎官网")?.url.host, "www.zhihu.com")
+        XCTAssertEqual(SmartSearch.resolve("larousse bonjour")?.url.host, "www.larousse.fr")
+        XCTAssertNil(SmartSearch.resolve("apple pie recipe"))                 // brand that is also a word: exact name only
+        XCTAssertNil(SmartSearch.resolve("how to cancel youtube premium"))     // the site name is not the first word
+        XCTAssertNil(SmartSearch.resolve("weather today"))
+        XCTAssertNil(SmartSearch.resolve("site:youtube.com cats"))
+        XCTAssertEqual(SmartSearch.resolve("apple")?.url.host, "www.apple.com")
+    }
     func testSafariUserAgentLooksLikeSafari() {
         let m = SafariUA.mobile, d = SafariUA.desktop
         XCTAssertTrue(d.contains("Version/") && d.hasSuffix("Safari/605.1.15"))

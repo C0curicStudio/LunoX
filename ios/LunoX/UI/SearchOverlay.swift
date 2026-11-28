@@ -107,7 +107,12 @@ struct SearchOverlay: View {
         guard !q.isEmpty, q != tab.url?.absoluteString else { return recents }
         var out: [Suggestion] = []
         let isURL = URLResolver.resolve(q, engine: settings.engine).map { $0.host != URLResolver.search(q, settings.engine)?.host } ?? false
-        out.append(Suggestion(kind: isURL ? .go : .search, title: q, subtitle: isURL ? "打开网址" : "\(settings.engine.name) 搜索", value: q))
+        if !isURL, settings.prefs.smartDirect, let t = SmartSearch.resolve(q) {
+            out.append(Suggestion(kind: .go, title: t.isSearch ? "在\(t.name)搜索「\(t.query)」" : "打开 \(t.name)", subtitle: "直达 · \(t.url.displayHost)", value: q))
+            out.append(Suggestion(kind: .search, title: q, subtitle: "\(settings.engine.name) 搜索", value: q))
+        } else {
+            out.append(Suggestion(kind: isURL ? .go : .search, title: q, subtitle: isURL ? "打开网址" : "\(settings.engine.name) 搜索", value: q))
+        }
         let lower = q.lowercased()
         out += store.bookmarks.filter { $0.title.lowercased().contains(lower) || $0.url.lowercased().contains(lower) }.prefix(3)
             .map { Suggestion(kind: .bookmark, title: $0.title, subtitle: $0.url, value: $0.url) }
@@ -140,16 +145,17 @@ struct SearchOverlay: View {
 
     private func pick(_ r: Suggestion) {
         if r.kind == .ai { showAI = true; return }
-        go(r.value)
+        go(r.value, smart: r.kind != .search)         // choosing the plain search row means "do not redirect"
     }
     private func submit() { go(text) }
-    private func go(_ s: String) {
+    private func go(_ s: String, smart: Bool = true) {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-        store.open(s); close()
+        store.open(s, smart: smart); close()
     }
     private func queryRemote(_ q: String) {
         task?.cancel()
-        if let u = URLResolver.resolve(q, engine: settings.engine), u.host != URLResolver.search(q, settings.engine)?.host { Prefetch.dns(u.host) }
+        if let t = SmartSearch.resolve(q), settings.prefs.smartDirect { Prefetch.dns(t.url.host) }
+        else if let u = URLResolver.resolve(q, engine: settings.engine), u.host != URLResolver.search(q, settings.engine)?.host { Prefetch.dns(u.host) }
         guard settings.prefs.searchSuggest, q.count >= 2, !tab.isPrivate else { remote = []; return }
         task = Task {
             try? await Task.sleep(nanoseconds: 220_000_000)
