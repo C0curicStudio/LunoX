@@ -356,6 +356,7 @@ struct NewsView: View {
                 .animation(Motion.smooth, value: selection)
             }
         }
+        .translationHost(store.translator.coord, enabled: true)     // this screen covers the main one, so it hosts the system translation itself
         .fullScreenCover(item: $player) { VideoPlayerView(article: $0) }
     }
 
@@ -424,7 +425,16 @@ private struct SectionFeed: View {
         }
         .scrollIndicators(.hidden)
         .refreshable { await news.load(section, force: true) }
-        .task { await news.load(section); withAnimation { shown = true } }
+        .task {
+            await news.load(section); withAnimation { shown = true }
+            news.translateVisible(section)
+            // keep the page fresh while it is open: a new check every 3 minutes (cheap: sources answer in parallel, results replace in place)
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 180_000_000_000)
+                if Task.isCancelled { break }
+                await news.load(section, force: true)
+            }
+        }
     }
 
     @ViewBuilder private var articleList: some View {

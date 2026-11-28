@@ -61,19 +61,20 @@ final class TranslationCoordinator: ObservableObject {
 @available(iOS 18.0, *)
 struct TranslationHost: ViewModifier {
     @ObservedObject var coord: TranslationCoordinator
+    var enabled = true
     @State private var config: TranslationSession.Configuration?
 
     func body(content: Content) -> some View {
         content
             .onChange(of: coord.job?.id) { _, id in
-                guard id != nil, let j = coord.job else { return }
+                guard enabled, id != nil, let j = coord.job else { return }
                 let src = j.source.map { Locale.Language(identifier: $0) }
                 let tgt = Locale.Language(identifier: j.target)
                 if var c = config, c.source == src, c.target == tgt { c.invalidate(); config = c }
                 else { config = TranslationSession.Configuration(source: src, target: tgt) }
             }
             .translationTask(config) { session in
-                guard let j = await MainActor.run(body: { coord.job }) else { return }
+                guard enabled, let j = await MainActor.run(body: { coord.job }) else { return }
                 do {
                     let reqs = j.texts.enumerated().map { TranslationSession.Request(sourceText: $0.element, clientIdentifier: String($0.offset)) }
                     let res = try await session.translations(from: reqs)
@@ -88,8 +89,8 @@ struct TranslationHost: ViewModifier {
 }
 
 extension View {
-    @ViewBuilder func translationHost(_ coord: TranslationCoordinator) -> some View {
-        if #available(iOS 18.0, *) { self.modifier(TranslationHost(coord: coord)) } else { self }
+    @ViewBuilder func translationHost(_ coord: TranslationCoordinator, enabled: Bool = true) -> some View {
+        if #available(iOS 18.0, *) { self.modifier(TranslationHost(coord: coord, enabled: enabled)) } else { self }
     }
 }
 

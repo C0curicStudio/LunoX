@@ -52,7 +52,7 @@ struct RootView: View {
                 TabSwitcher(ns: heroNS, pick: pickTab).transition(.opacity).zIndex(4)
             }
         }
-        .translationHost(store.translator.coord)
+        .translationHost(store.translator.coord, enabled: !showNews)
         .animation(Motion.smooth, value: store.selectedID)
         .animation(Motion.hero, value: store.showSwitcher)
         .onChange(of: store.searchRequest) { _, _ in openSearch() }

@@ -71,6 +71,7 @@ final class BrowserStore: ObservableObject {
         router.hy2 = hy2
         edge.hy2 = hy2
         hy2.onChange = { [weak self] in self?.router.apply() }
+        news.translate = { [weak self] texts, source in await self?.translator.translate(texts, source: source, target: LanguageUtil.target(self?.settings.prefs.translateTarget ?? "")) }
         router.gateway = gateway
         edge.onChange = { [weak self] in self?.router.apply() }
         router.register(normalStore)
@@ -302,7 +303,6 @@ final class BrowserStore: ObservableObject {
         if let hp = URL(string: settings.prefs.homepage), !settings.prefs.homepage.isEmpty, current?.isBlank == true { current?.navigate(hp) }
         if settings.prefs.syncBookmarks { Task { await sync() } }
         if settings.prefs.nativeTemplates { templates.warmUp() }
-        news.translate = { [weak self] texts, source in await self?.translator.translate(texts, source: source, target: LanguageUtil.target(self?.settings.prefs.translateTarget ?? "")) }
         news.warmUp()
     }
 

@@ -81,6 +81,9 @@ final class NewsStore: ObservableObject {
         Task { [weak self] in try? await Task.sleep(nanoseconds: 1_200_000_000); await self?.load(.explore) }
     }
 
+    /// Translate what is already on screen (cached articles from the last session, or a section just opened).
+    func translateVisible(_ s: NewsSection) { Task { await translateHeadlines(articles[s] ?? []) } }
+
     /// Apple on-device translation of headlines that are not in the reading language. Grouped by source language, 30 at a time.
     private func translateHeadlines(_ items: [Article]) async {
         guard settings.prefs.translateNews, let translate, !translating else { return }
@@ -125,7 +128,7 @@ final class NewsStore: ObservableObject {
             return
         }
 
-        var items = await engine.load(s) { [weak self] partial in self?.articles[s] = partial; Task { await self?.translateHeadlines(partial) } }
+        var items = await engine.load(s) { [weak self] partial in if (self?.articles[s] ?? []).isEmpty { self?.articles[s] = partial }; Task { await self?.translateHeadlines(partial) } }
         if items.isEmpty, settings.gatewayConfigured, let d = try? await gateway.newsData("/v1/news", ["cat": s.rawValue]),
            let srv = try? JSONDecoder().decode(Wrap<Article>.self, from: d).items { items = srv }
         if items.isEmpty {
