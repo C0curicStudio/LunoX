@@ -71,6 +71,7 @@ struct YouTubeView: UIViewRepresentable {
         let cfg = WKWebViewConfiguration()
         cfg.allowsInlineMediaPlayback = true
         cfg.mediaTypesRequiringUserActionForPlayback = []
+        cfg.preferences.isElementFullscreenEnabled = true
         cfg.websiteDataStore = dataStore                         // same data store => the same proxy / Hysteria2 route as pages
         let w = WKWebView(frame: .zero, configuration: cfg)
         w.isOpaque = false; w.backgroundColor = .black; w.scrollView.backgroundColor = .black

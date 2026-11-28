@@ -52,6 +52,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
     private var dismissedHost: String?
     func dismissTranslateBanner() { translateDismissed = true; dismissedHost = (webView?.url ?? url)?.host }
     @Published var template: TemplateRoute?     // set = a native page replaces the web view
+    var lastTemplate: TemplateRoute?            // the native page the user left for "原网页"
     var pendingNative = false                   // user went to sign in: switch to the native page once they are in
     var webMode = false                         // user chose "原网页": links stay on the web
     private var templateBack: [URL] = []
@@ -193,7 +194,8 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
             if !isPrivate { store.recordVisit(url: url, title: r.platform.name) }
             return
         }
-        template = nil; templateBack = []; webMode = forceWeb
+        if forceWeb, let r = template { lastTemplate = r }
+        template = nil; if !forceWeb { templateBack = []; lastTemplate = nil }; webMode = forceWeb
         self.url = url
         let wv = ensureWebView()
         showingCachedCopy = false
@@ -224,7 +226,13 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
             else if let wv = webView, wv.url != nil { template = nil; url = wv.url; canGoBack = wv.canGoBack; canGoForward = wv.canGoForward }
             return
         }
+        if webMode, !(webView?.canGoBack ?? false), let r = lastTemplate { lastTemplate = nil; navigate(r.url, pushing: false); return }
         webView?.goBack()
+    }
+    /// The page being shown on the web could be shown natively: the bottom bar offers the way back to the template.
+    var templateAvailable: TemplateRoute? {
+        guard template == nil, store.settings.prefs.nativeTemplates, let u = url else { return nil }
+        return TemplateRoute.match(u)
     }
     func goForward() { webView?.goForward() }
     func templateReady(thumb: String?) {

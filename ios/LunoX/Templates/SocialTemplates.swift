@@ -143,6 +143,7 @@ struct SocialTemplateView: View {
             else { theme.background }
         }
         .background(theme.background.ignoresSafeArea())
+        .edgeSwipeBack(tab)
         .task(id: route.url) {
             guard case .feed = route.kind else { return }
             let l = SocialLoader(route: route, dataStore: store.dataStore(isPrivate: tab.isPrivate)); loader = l

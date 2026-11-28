@@ -33,6 +33,7 @@ struct BottomChrome: View {
         .animation(Motion.bouncy, value: collapsed)
         .animation(Motion.snappy, value: tab.canTranslate)
         .animation(Motion.snappy, value: tab.readable)
+        .animation(Motion.snappy, value: tab.url)
         .animation(Motion.snappy, value: tab.translated)
     }
 
@@ -59,6 +60,11 @@ struct BottomChrome: View {
                             if tab.translating { ProgressView().controlSize(.small) }
                             else { Image(systemName: tab.translated ? "character.bubble.fill" : "character.bubble").font(.system(size: 15, weight: .semibold)).foregroundStyle(theme.accent) }
                         }.frame(width: 34, height: 40).contentShape(Rectangle())
+                    }.buttonStyle(PressableStyle(scale: 0.85)).transition(.scale.combined(with: .opacity))
+                }
+                if !collapsed, tab.templateAvailable != nil, !tab.isLoading {
+                    Button { Haptics.soft(); if let u = tab.url { tab.navigate(u) } } label: {
+                        Image(systemName: "rectangle.stack.badge.play").font(.system(size: 15, weight: .semibold)).foregroundStyle(theme.accent).frame(width: 34, height: 40).contentShape(Rectangle())
                     }.buttonStyle(PressableStyle(scale: 0.85)).transition(.scale.combined(with: .opacity))
                 }
                 if !collapsed && tab.readable && !tab.isLoading {

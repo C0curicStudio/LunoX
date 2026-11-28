@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 
 /// Native page templates for well-known sites. A recognised URL is never loaded as a web page: the structured data is
 /// requested directly (phone first, your server as the fallback) and rendered with native iOS views.
@@ -89,6 +90,28 @@ struct TemplateRoute: Equatable {
         case .instagram: return nil
         }
         return URL(string: s).flatMap { match($0) }
+    }
+}
+
+/// A tab of a platform's home screen (like the real app's 推荐 / 热门 / 动画 …).
+struct TSection: Identifiable, Hashable {
+    enum Kind: Hashable { case home, popular, search(String) }
+    let id: String
+    let title: String
+    let kind: Kind
+}
+
+extension SitePlatform {
+    var sections: [TSection] {
+        switch self {
+        case .bilibili:
+            let cats = ["动画", "音乐", "舞蹈", "游戏", "知识", "科技", "生活", "美食", "娱乐", "影视"]
+            return [TSection(id: "rcmd", title: "推荐", kind: .home), TSection(id: "popular", title: "热门", kind: .popular)] + cats.map { TSection(id: "c-\($0)", title: $0, kind: .search($0)) }
+        case .youtube:
+            let q: [(String, String)] = [("音乐", "music"), ("游戏", "gaming"), ("新闻", "news today"), ("体育", "sports highlights"), ("电影", "movie trailer"), ("科技", "tech review"), ("美食", "cooking")]
+            return [TSection(id: "trend", title: "热门", kind: .home)] + q.map { TSection(id: "c-\($0.1)", title: $0.0, kind: .search($0.1)) }
+        case .x, .instagram: return []
+        }
     }
 }
 
@@ -196,7 +219,7 @@ enum SiteParse {
             if let list = d["list"] as? [[String: Any]] {                  // popular
                 for x in list { items.append(bili(x)) }
             } else if let list = d["result"] as? [[String: Any]] {         // search
-                for x in list where x["bvid"] != nil {
+                for x in list where x["bvid"] != nil && (x["is_ad"] as? Int ?? 0) == 0 && (x["type"] as? String ?? "video") == "video" {
                     let dur = (x["duration"] as? String) ?? ""
                     items.append(TItem(id: x["bvid"] as? String ?? "", platform: .bilibili, title: stripTags(x["title"] as? String ?? ""), thumb: https(x["pic"] as? String),
                                        duration: dur.isEmpty ? nil : dur, author: x["author"] as? String ?? "", avatar: https(x["upic"] as? String),
@@ -209,8 +232,20 @@ enum SiteParse {
     private static func bili(_ x: [String: Any]) -> TItem {
         let stat = x["stat"] as? [String: Any]; let owner = x["owner"] as? [String: Any]
         return TItem(id: x["bvid"] as? String ?? "", platform: .bilibili, title: x["title"] as? String ?? "", thumb: https(x["pic"] as? String),
-                     duration: (x["duration"] as? Int).map(clock), author: owner?["name"] as? String ?? "", avatar: https(owner?["face"] as? String),
+                     duration: ((x["duration"] as? Int) ?? Int("\(x["duration"] ?? "")")).map(clock), author: owner?["name"] as? String ?? (x["author"] as? String ?? ""), avatar: https(owner?["face"] as? String),
                      meta: "\(count(stat?["view"] as? Int ?? 0))播放 · \(count(stat?["danmaku"] as? Int ?? 0))弹幕")
+    }
+
+    /// Home recommendations. Anything that is not a plain video (ads, live cards, bangumi promos) is dropped.
+    static func bilibiliRcmd(_ data: Data) -> [TItem] {
+        guard let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any], (j["code"] as? Int) == 0,
+              let items = (j["data"] as? [String: Any])?["item"] as? [[String: Any]] else { return [] }
+        return items.compactMap { x in
+            guard (x["goto"] as? String) == "av", (x["is_ad"] as? Bool) != true, x["business_info"] is NSNull || x["business_info"] == nil,
+                  (x["ad_info"] == nil), let bv = x["bvid"] as? String else { return nil }
+            let t = bili(x)
+            return t.title.isEmpty ? nil : TItem(id: bv, platform: .bilibili, title: t.title, thumb: t.thumb, duration: t.duration, author: t.author, avatar: t.avatar, meta: t.meta)
+        }
     }
 
     static func bilibiliDetail(_ data: Data) -> TDetail? {
@@ -362,6 +397,51 @@ final class TemplateService {
             return (t, [])
         case .x, .instagram: return nil
         }
+    }
+
+    /// One page of a home tab (or of search results). `page` starts at 1. Ads are removed by the parsers.
+    func page(_ platform: SitePlatform, section: TSection, page: Int, query: String?) async -> [TItem] {
+        switch platform {
+        case .bilibili:
+            let url: String
+            if let q = query { url = "https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=\(esc(q))&page=\(page)&order=totalrank" }
+            else {
+                switch section.kind {
+                case .home: url = "https://api.bilibili.com/x/web-interface/index/top/feed/rcmd?ps=12&fresh_idx=\(page)&fresh_idx_1h=\(page)&fresh_type=4"
+                case .popular: url = "https://api.bilibili.com/x/web-interface/popular?pn=\(page)&ps=20"
+                case .search(let k): url = "https://api.bilibili.com/x/web-interface/search/type?search_type=video&keyword=\(esc(k))&page=\(page)&order=totalrank"
+                }
+            }
+            guard let d = await get(url) else { return [] }
+            let isRcmd = query == nil && section.kind == .home
+            return await Task.detached { isRcmd ? SiteParse.bilibiliRcmd(d) : SiteParse.bilibiliList(d) }.value
+        case .youtube:
+            let q: String?
+            if let query { q = query } else if case .search(let k) = section.kind { q = k } else { q = nil }
+            if page > 1 { return [] }                       // YouTube's own page has no stable paging; one rich page per tab
+            return await feed(.youtube, query: q)
+        case .x, .instagram: return []
+        }
+    }
+
+    /// Cookie header of the signed-in web session (used for higher quality streams when the user is logged in).
+    func cookieHeader(_ store: WKWebsiteDataStore, domain: String) async -> String {
+        let cookies = await store.httpCookieStore.allCookies().filter { $0.domain.hasSuffix(domain) }
+        return cookies.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+    }
+
+    struct BiliStream { var url: URL; var quality: Int; var qualities: [(Int, String)] }
+    /// Direct MP4 stream for the system player: the best quality the account allows (720P anonymous, 1080P+ when signed in).
+    func biliStream(bvid: String, cookie: String, qn: Int = 120) async -> BiliStream? {
+        guard let pd = await get("https://api.bilibili.com/x/player/pagelist?bvid=\(bvid)"),
+              let pj = try? JSONSerialization.jsonObject(with: pd) as? [String: Any], let cid = ((pj["data"] as? [[String: Any]])?.first?["cid"]) as? Int else { return nil }
+        guard let u = URL(string: "https://api.bilibili.com/x/player/playurl?bvid=\(bvid)&cid=\(cid)&qn=\(qn)&fnval=1&fourk=1&platform=html5&high_quality=1"),
+              let d = await engine.data(u, userAgent: nil, headers: ["Referer": "https://www.bilibili.com/", "Cookie": cookie], maxBytes: 1_000_000),
+              let j = try? JSONSerialization.jsonObject(with: d) as? [String: Any], (j["code"] as? Int) == 0, let data = j["data"] as? [String: Any],
+              let durl = (data["durl"] as? [[String: Any]])?.first, let us = durl["url"] as? String, let url = URL(string: us) else { return nil }
+        let q = data["quality"] as? Int ?? 0
+        let qs = zip((data["accept_quality"] as? [Int]) ?? [], (data["accept_description"] as? [String]) ?? []).map { ($0, $1) }
+        return BiliStream(url: url, quality: q, qualities: qs)
     }
 
     /// A single public post on X (text, photos, video) through X's own embed endpoint: works without signing in.
