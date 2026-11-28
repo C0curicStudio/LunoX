@@ -52,6 +52,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
     private var dismissedHost: String?
     func dismissTranslateBanner() { translateDismissed = true; dismissedHost = (webView?.url ?? url)?.host }
     @Published var template: TemplateRoute?     // set = a native page replaces the web view
+    private var retriedDirect = Set<String>()
     var lastTemplate: TemplateRoute?            // the native page the user left for "原网页"
     var pendingNative = false                   // user went to sign in: switch to the native page once they are in
     var webMode = false                         // user chose "原网页": links stay on the web
@@ -459,6 +460,23 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         favicon = webView.url?.host.flatMap { store.icon(for: $0) }
     }
 
+    /// The server's address belongs to a datacenter, which some sites' firewalls refuse ("you have been blocked", Cloudflare 1020 …).
+    /// If this page came through the proxy and looks like that, and the site answers directly, switch the site to direct and reload.
+    private func checkProxyBlock(_ webView: WKWebView, _ u: URL) {
+        guard store.router.cachedRoute(for: u) == .proxy, let host = u.host, !retriedDirect.contains(host) else { return }
+        Task { [weak self] in
+            let js = "(function(){var t=(document.body&&document.body.innerText||'').slice(0,1500);var cf=!!document.querySelector('#cf-error-details,.cf-error-details,#cf-wrapper');return cf&&/(blocked|屏蔽|access denied|error 1020|error 1006|error 1015|1010)/i.test(t+document.title);})()"
+            guard let hit = try? await webView.evaluateJavaScript(js) as? Bool, hit, let self, self.webView === webView else { return }
+            self.retriedDirect.insert(host)
+            let dom = URLResolver.registrableDomain(host)
+            let probe = await Router.probeDirect(host: host)
+            guard probe.ok, probe.ms > 0 else { return }          // not reachable directly either: keep the proxy
+            self.store.router.markDirect(dom)
+            self.flash("该网站拦截了代理出口，已改为直连")
+            webView.load(URLRequest(url: u))
+        }
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         let wasArchive = loadingArchive
         stuck = false
@@ -467,6 +485,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         url = u
         if !isPrivate { store.recordVisit(url: u, title: webView.title ?? title) }
         store.persistSoon()
+        checkProxyBlock(webView, u)
         Task {
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             guard self.webView === webView, webView.url == u else { return }

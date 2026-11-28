@@ -38,8 +38,33 @@ final class Router: ObservableObject {
         "netflix.com": ["nflxvideo.net", "nflximg.net", "nflxext.com"],
     ]
 
+    /// Sites inside the country are never sent through the overseas server: slower, and their firewalls (Cloudflare, WAF) block datacenter addresses.
+    static let domestic: Set<String> = [
+        "baidu.com", "bdstatic.com", "qq.com", "weixin.com", "wechat.com", "gtimg.com", "qpic.cn", "zhihu.com", "zhimg.com", "taobao.com", "tmall.com", "alipay.com", "alicdn.com", "aliyun.com",
+        "jd.com", "360buyimg.com", "douyin.com", "douyinpic.com", "toutiao.com", "bytedance.com", "byteimg.com", "xiaohongshu.com", "xhscdn.com", "163.com", "126.net", "netease.com",
+        "sina.com.cn", "weibo.com", "sinaimg.cn", "bilibili.com", "hdslb.com", "bilivideo.com", "b23.tv", "acfun.cn", "iqiyi.com", "youku.com", "mgtv.com", "kuaishou.com", "ixigua.com",
+        "kimi.ai", "kimi.com", "moonshot.cn", "deepseek.com", "doubao.com", "volcengine.com", "zhipuai.cn", "bigmodel.cn", "aliyuncs.com", "tencent.com", "tencentcloud.com", "huawei.com",
+        "meituan.com", "dianping.com", "ctrip.com", "12306.cn", "gov.cn", "csdn.net", "cnblogs.com", "juejin.cn", "36kr.com", "xiaomi.com", "mi.com", "oppo.com", "vivo.com",
+    ]
+    /// Sites that blocked the proxy exit address and answered fine directly (learned, kept for 7 days).
+    @Published private(set) var direct: [String: Date] = [:]
+    private let directFile = JSONFile<[String: Date]>("direct-sites.json")
+
+    func isDomestic(_ dom: String, host: String) -> Bool {
+        if Router.domestic.contains(dom) || host.hasSuffix(".cn") || host.hasSuffix(".com.cn") { return true }
+        if let d = direct[dom], Date().timeIntervalSince(d) < 7 * 86_400 { return true }
+        return false
+    }
+
+    /// A proxied page came back as a firewall block page: if the site is reachable directly, go direct from now on.
+    func markDirect(_ dom: String) {
+        direct[dom] = Date(); proxied[dom] = nil; verdicts[dom] = (true, Date())
+        directFile.save(direct); file.save(proxied); apply()
+    }
+
     init(settings: Settings) {
         self.settings = settings
+        direct = directFile.load([:]).filter { Date().timeIntervalSince($0.value) < 7 * 86_400 }
         // Remember recently-blocked domains for 6h so cold starts don't wait for a probe.
         let saved = file.load([:]).filter { Date().timeIntervalSince($0.value) < 6 * 3600 }
         proxied = saved
@@ -59,7 +84,9 @@ final class Router: ObservableObject {
         case .auto: break
         }
         guard settings.gatewayConfigured || hy2?.running == true else { return .direct }
-        if isForced(dom) || settings.site(host).forceProxy || proxied[dom] != nil { return .proxy }
+        if isForced(dom) || settings.site(host).forceProxy { return .proxy }
+        if isDomestic(dom, host: host) { return .direct }
+        if proxied[dom] != nil { return .proxy }
         if let v = verdicts[dom], Date().timeIntervalSince(v.at) < 600, v.ok { return .direct }
         return nil
     }
@@ -80,6 +107,7 @@ final class Router: ObservableObject {
         }
         guard settings.gatewayConfigured || hy2?.running == true else { return .direct }
         if isForced(dom) || settings.site(host).forceProxy { apply(); return .proxy }
+        if isDomestic(dom, host: host) { return .direct }
         if proxied[dom] != nil { apply(); return .proxy }
         if let v = verdicts[dom], Date().timeIntervalSince(v.at) < 600, v.ok { return .direct }
 
