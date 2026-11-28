@@ -74,6 +74,14 @@ final class Hy2Manager: ObservableObject {
         #endif
     }
 
+    /// Re-open the QUIC session in the background (app returned to the foreground, network changed).
+    func warm() {
+        #if canImport(Hy2bridge)
+        guard running else { return }
+        DispatchQueue.global(qos: .utility).async { Hy2bridgeWarm() }
+        #endif
+    }
+
     func stop() {
         #if canImport(Hy2bridge)
         Hy2bridgeStop()

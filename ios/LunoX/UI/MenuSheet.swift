@@ -240,6 +240,8 @@ struct SiteInfoView: View {
                     Section("此站点的设置") {
                         Toggle("桌面版网站", isOn: Binding(get: { settings.site(host).desktop }, set: { v in settings.updateSite(host) { $0.desktop = v }; tab.webView?.reload() }))
                         Toggle("允许 JavaScript", isOn: Binding(get: { settings.site(host).javascript }, set: { v in settings.updateSite(host) { $0.javascript = v }; tab.webView?.reload() }))
+                        Button { store.loginPickerRequest += 1; dismiss() } label: { Label("已存的密码与账号…", systemImage: "key") }
+                        Button { Task { if await store.vault.unlock("保存当前账号的登录状态"), await store.vault.saveAccount(from: tab) != nil { tab.flash("已把当前登录状态保存为账号"); Haptics.ok() } else { tab.flash("没有可保存的登录状态"); Haptics.warn() } } } label: { Label("保存当前登录状态为账号", systemImage: "person.badge.plus") }
                         Toggle("此站点关闭指纹防护", isOn: Binding(get: { settings.site(host).fingerprintLoose }, set: { v in settings.updateSite(host) { $0.fingerprintLoose = v }; tab.rebuildScripts(); tab.webView?.reload() }))
                         Toggle("保留此站点的 App 提示与登录弹窗", isOn: Binding(get: { settings.site(host).allowNags }, set: { v in settings.updateSite(host) { $0.allowNags = v }; tab.webView?.reload() }))
                         Toggle("始终通过服务器访问", isOn: Binding(get: { settings.site(host).forceProxy }, set: { v in settings.updateSite(host) { $0.forceProxy = v }; store.router.apply(); tab.webView?.reload() }))

@@ -40,6 +40,7 @@ enum FingerprintGuard {
           var SKIP=[LIST], host=location.hostname.toLowerCase();
           for (var i=0;i<SKIP.length;i++){ if (host===SKIP[i] || host.endsWith('.'+SKIP[i])) return; }
           if (host==='www.google.com' && location.pathname.indexOf('/recaptcha')===0) return;
+          if (/\/(login|signin|sign-in|sign_in|oauth|sso|passport|auth|captcha|verify|session)/i.test(location.pathname) || /^(login|accounts|passport|auth|sso|id|signin|oauth)\./.test(host)) return;
           var parts=host.split('.'), site=parts.slice(-2).join('.');
           function fnv(s){var h=2166136261;for(var i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}
           var seed=fnv('SECRET|'+site);

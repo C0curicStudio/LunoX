@@ -16,6 +16,9 @@ final class BrowserStore: ObservableObject {
     let edge: EdgeSelector
     let translator: Translator
     let hy2 = Hy2Manager()
+    let vault = Vault()
+    @Published var savePrompt: SavePrompt?
+    @Published var loginPickerRequest = 0
     let fingerprintHandler = FingerprintHandler()
     let news: NewsStore
     @Published var newsRequest = 0
@@ -158,6 +161,19 @@ final class BrowserStore: ObservableObject {
         tabs.removeAll { $0.isPrivate == p }
         if tabs.isEmpty { newTab() } else if current == nil, let t = tabs.last { selectTab(t) }
         persistSoon()
+    }
+
+    struct SavePrompt: Identifiable { let id = UUID(); var site: String; var user: String; var pass: String; var update: Bool }
+
+    /// A sign-in form was submitted: offer to keep it (never for private tabs, never twice, never for sites the user excluded).
+    func offerSave(host: String, user: String, pass: String) {
+        let site = vault.site(for: host)
+        guard !site.isEmpty, !pass.isEmpty, !vault.isNeverSave(site) else { return }
+        let existing = vault.data.credentials.first { $0.site == site && $0.username == user }
+        if existing?.password == pass { return }
+        let p = SavePrompt(site: site, user: user, pass: pass, update: existing != nil)
+        withAnimation(Motion.snappy) { savePrompt = p }
+        Task { try? await Task.sleep(nanoseconds: 25_000_000_000); if savePrompt?.id == p.id { withAnimation { savePrompt = nil } } }
     }
 
     /// One entry point for every pairing link (clipboard, paste box, tapped link): gateway + built-in Hysteria2.

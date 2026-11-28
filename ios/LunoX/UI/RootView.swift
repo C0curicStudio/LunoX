@@ -10,6 +10,7 @@ struct RootView: View {
     @State private var showSite = false
     @State private var showFind = false
     @State private var showAssistant = false
+    @State private var showPicker = false
     @State private var menuDetent: PresentationDetent = .medium
     @State private var showNews = false
     @State private var showStartEdit = false
@@ -32,16 +33,18 @@ struct RootView: View {
 
             VStack(spacing: 8) {
                 StatusPills()
+                SavePasswordBar()
                 if let t = store.current { TranslateBanner(tab: t) }
                 if let t = store.current { StuckChip(tab: t) { menuRoute = .diagnostics; showMenu = true } }
                 Spacer()
                 if let tab = store.current {
                     if showFind { FindBar(tab: tab) { withAnimation(.snappy) { showFind = false } }.transition(.move(edge: .bottom).combined(with: .opacity)) }
-                    BottomChrome(tab: tab, ns: ns, searching: searching,
+                    BottomChrome(tab: tab, vault: store.vault, ns: ns, searching: searching,
                                  onSearch: openSearch, onSite: { showSite = true }, onMenu: { showMenu = true }, onTabs: openSwitcher,
                                  onReader: { menuRoute = .reader; showMenu = true },
                                  onTranslate: { if tab.translated { tab.showOriginal() } else { Task { await tab.translate() } } },
-                                 onAI: { Haptics.soft(); showAssistant = true })
+                                 onAI: { Haptics.soft(); showAssistant = true },
+                                 onKey: { showPicker = true })
                 }
             }
             .padding(.bottom, 2).zIndex(2)
@@ -67,6 +70,10 @@ struct RootView: View {
                      onSearch: { showNews = false; DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { openSearch() } },
                      onSettings: { showNews = false; DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { menuRoute = .settings; showMenu = true } })
         }
+        .sheet(isPresented: $showPicker) {
+            if let t = store.current { LoginPicker(tab: t).presentationDetents([.medium, .large]).presentationDragIndicator(.visible) }
+        }
+        .onChange(of: store.loginPickerRequest) { _, _ in showPicker = true }
         .sheet(isPresented: $showAssistant) {
             if let t = store.current { AIAssistantView(tab: t).presentationDetents([.medium, .large]).presentationDragIndicator(.visible).presentationBackgroundInteraction(.enabled(upThrough: .medium)) }
         }

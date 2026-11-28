@@ -54,12 +54,13 @@ enum Keychain {
     private static func query(_ k: String) -> [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "app.lunox", kSecAttrAccount as String: k]
     }
-    static func set(_ v: String, for k: String) {
+    /// `strong`: readable only while the phone is unlocked (used for the password vault).
+    static func set(_ v: String, for k: String, strong: Bool = false) {
         SecItemDelete(query(k) as CFDictionary)
         guard !v.isEmpty else { return }
         var q = query(k)
         q[kSecValueData as String] = Data(v.utf8)
-        q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        q[kSecAttrAccessible as String] = strong ? kSecAttrAccessibleWhenUnlockedThisDeviceOnly : kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         SecItemAdd(q as CFDictionary, nil)
     }
     static func get(_ k: String) -> String {

@@ -4,6 +4,7 @@ import SwiftUI
 struct BottomChrome: View {
     @ObservedObject var tab: Tab
     @EnvironmentObject var store: BrowserStore
+    @ObservedObject var vault: Vault
     @Environment(\.theme) private var theme
     var ns: Namespace.ID
     var searching: Bool
@@ -14,6 +15,7 @@ struct BottomChrome: View {
     var onReader: () -> Void
     var onTranslate: () -> Void
     var onAI: () -> Void
+    var onKey: () -> Void
     @State private var reloadTick = 0
 
     var body: some View {
@@ -61,6 +63,11 @@ struct BottomChrome: View {
                             if tab.translating { ProgressView().controlSize(.small) }
                             else { Image(systemName: tab.translated ? "character.bubble.fill" : "character.bubble").font(.system(size: 15, weight: .semibold)).foregroundStyle(theme.accent) }
                         }.frame(width: 34, height: 40).contentShape(Rectangle())
+                    }.buttonStyle(PressableStyle(scale: 0.85)).transition(.scale.combined(with: .opacity))
+                }
+                if !collapsed, !tab.isBlank, vault.hasAnything(for: tab.url?.host) {
+                    Button { Haptics.soft(); onKey() } label: {
+                        Image(systemName: "key.fill").font(.system(size: 14, weight: .semibold)).foregroundStyle(theme.accent).frame(width: 34, height: 40).contentShape(Rectangle())
                     }.buttonStyle(PressableStyle(scale: 0.85)).transition(.scale.combined(with: .opacity))
                 }
                 if !collapsed, tab.templateAvailable != nil, !tab.isLoading {

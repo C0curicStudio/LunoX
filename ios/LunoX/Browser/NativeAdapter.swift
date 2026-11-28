@@ -369,7 +369,52 @@ enum NativeAdapter {
         tr.observer.observe(document.body, { childList: true, subtree: true });
       }
 
-      window.__luno = { setFilter: setFilter, translateCollect: translateCollect, translateApply: translateApply, translateRestore: translateRestore, text: text, snapshot: snapshot, run: run, reader: reader, meta: meta, setInset: setInset, setDark: setDark, setAccent: setAccent, adapt: adapt };
+      // ---------- sign-in forms: capture (to offer saving) and fill (from the vault, after Face ID) ----------
+      function vis(e) { try { var r = e.getBoundingClientRect(), st = getComputedStyle(e); return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none'; } catch (x) { return false; } }
+      function pwInput() { var l = document.querySelectorAll('input[type=password]'); for (var i = 0; i < l.length; i++) if (vis(l[i])) return l[i]; return null; }
+      function userInput(pw) {
+        var scope = pw.form || document, best = null;
+        var c = scope.querySelectorAll('input:not([type]),input[type=text],input[type=email],input[type=tel],input[type=search],input[type=number]');
+        for (var i = 0; i < c.length; i++) if (vis(c[i]) && (c[i].compareDocumentPosition(pw) & Node.DOCUMENT_POSITION_FOLLOWING)) best = c[i];
+        return best;
+      }
+      function setVal(el, v) {
+        var d = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value') || Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+        el.focus(); d.set.call(el, v);
+        el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      function fill(u, p, submit) {
+        var pw = pwInput();
+        if (!pw) {                                              // two-step sign-in: only the account field is on screen
+          var ui = document.querySelector('input[autocomplete=username],input[type=email],input[name*=user i],input[name*=login i],input[name*=email i],input[type=text]');
+          if (ui && vis(ui)) { setVal(ui, u); return 'user'; }
+          return 'none';
+        }
+        var ui2 = userInput(pw); if (ui2 && u) setVal(ui2, u);
+        setVal(pw, p);
+        if (submit) {
+          var f = pw.form, b = f && (f.querySelector('button[type=submit],input[type=submit]') || f.querySelector('button'));
+          if (b) b.click(); else if (f && f.requestSubmit) f.requestSubmit();
+          else pw.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true }));
+        }
+        return 'ok';
+      }
+      var sentCred = {};
+      function captureCred() {
+        var pw = pwInput(); if (!pw || !pw.value) return;
+        var ui = userInput(pw), u = ui ? ui.value : '', k = u + '|' + pw.value;
+        if (sentCred[k]) return; sentCred[k] = 1;
+        post({ type: 'cred', user: u, pass: pw.value });
+      }
+      document.addEventListener('submit', captureCred, true);
+      document.addEventListener('keydown', function (e) { if (e.key === 'Enter' && e.target && e.target.type === 'password') captureCred(); }, true);
+      document.addEventListener('click', function (e) {
+        var t = e.target && e.target.closest && e.target.closest('button,input[type=submit],[role=button],a'); if (!t) return;
+        var pw = pwInput(); if (!pw || !pw.value) return;
+        if (t.type === 'submit' || (pw.form && t.closest('form') === pw.form) || /登录|登入|sign ?in|log ?in|continue|next|下一步|提交/i.test(t.innerText || t.value || '')) captureCred();
+      }, true);
+
+      window.__luno = { setFilter: setFilter, translateCollect: translateCollect, translateApply: translateApply, translateRestore: translateRestore, text: text, snapshot: snapshot, run: run, reader: reader, meta: meta, setInset: setInset, setDark: setDark, setAccent: setAccent, adapt: adapt, fill: fill, hasLoginForm: function () { return !!pwInput(); } };
     })();
     """#
 }

@@ -107,6 +107,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         wv.overrideUserInterfaceStyle = store.webStyle
         wv.underPageBackgroundColor = UIColor(store.pageBackdrop)
         wv.customUserAgent = SafariUA.mobile
+        wv.scrollView.delaysContentTouches = false        // taps reach the page at once (the default waits ~150 ms to see whether it is a scroll)
         #if DEBUG
         wv.isInspectable = true
         #endif
@@ -320,6 +321,9 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         case "blocked":
             let kind = (body["kind"] as? String) ?? ""
             flash(kind == "login" ? "已移除强制登录弹窗" : "已隐藏“打开 App”提示"); Haptics.soft()
+        case "cred":
+            guard !isPrivate, let host = url?.host else { break }
+            store.offerSave(host: host, user: (body["user"] as? String) ?? "", pass: (body["pass"] as? String) ?? "")
         case "dom-more": if translated, !translating { Task { await translate() } }
         case "meta":
             if let t = body["title"] as? String, !t.isEmpty { title = t }
@@ -394,6 +398,28 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
             _ = try? await webView?.callAsyncJavaScript("window.__luno.translateApply(ids, texts)", arguments: ["ids": subIDs, "texts": out], in: nil, contentWorld: NativeAdapter.world)
             if first { translated = true; Haptics.ok(); first = false }
         }
+    }
+
+    // MARK: saved sign-ins
+
+    /// Fill (and optionally submit) a saved sign-in. Only on the site it was saved for.
+    func fillLogin(_ c: Credential, submit: Bool) async {
+        guard let host = url?.host, store.vault.site(for: host) == c.site, let wv = webView else { flash("这个密码属于 \(c.site)"); return }
+        let res = try? await wv.callAsyncJavaScript("window.__luno.fill(u, p, s)", arguments: ["u": c.username, "p": c.password, "s": submit], in: nil, contentWorld: NativeAdapter.world)
+        store.vault.touch(c)
+        switch res as? String {
+        case "user": flash("已填入账号，进入下一步后再点钥匙填密码"); Haptics.soft()
+        case "none": flash("这个页面上没有找到登录框"); Haptics.warn()
+        default: Haptics.ok()
+        }
+    }
+
+    /// Switch to a saved account of this site (its cookies replace the current ones) and reload.
+    func loginWith(_ a: AccountProfile) async {
+        await store.vault.apply(a, to: self)
+        if let u = url, store.vault.site(for: u.host) == a.site, webView != nil { webView?.reload() }
+        else if let u = URL(string: "https://\(a.site)/") { navigate(u, forceWeb: true) }
+        flash("已切换到「\(a.label)」"); Haptics.ok()
     }
 
     func showOriginal() { Task { _ = await js("window.__luno.translateRestore()"); translated = false } }
@@ -483,7 +509,8 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         fingerprintHits = 0
         translated = false; canTranslate = false; translateDismissed = dismissedHost != nil && dismissedHost == webView.url?.host; pageLang = nil
         let site = store.settings.site(webView.url?.host)
-        let prof = store.router.profile(for: webView.url?.host)
+        var prof = store.router.profile(for: webView.url?.host)
+        if SiteProfile.isLoginPage(webView.url) { prof.removeLoginPrompts = false; prof.removeAppPrompts = false }
         let p = store.settings.prefs
         Task { _ = await js("window.__luno && window.__luno.setFilter(\(p.blockAppPrompts && !site.allowNags && prof.removeAppPrompts), \(p.blockForcedLogin && !site.allowNags && prof.removeLoginPrompts))") }
         webView.scrollView.pinchGestureRecognizer?.isEnabled = false

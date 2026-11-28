@@ -25,6 +25,16 @@ enum SafariUA {
 }
 
 /// Per-platform behaviour of the page helpers. Only things that would otherwise get in the way of signing in or break the page.
+extension SiteProfile {
+    /// Sign-in, OAuth, captcha and verification pages: the page helpers stay out of the way completely.
+    static func isLoginPage(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        let h = (url.host ?? "").lowercased(), p = url.path.lowercased()
+        if ["login.", "accounts.", "passport.", "auth.", "sso.", "id.", "signin.", "oauth."].contains(where: { h.hasPrefix($0) }) { return true }
+        return ["/login", "/signin", "/sign-in", "/sign_in", "/oauth", "/sso", "/passport", "/auth", "/captcha", "/verify", "/account/login", "/session"].contains { p.contains($0) }
+    }
+}
+
 struct SiteProfile {
     var removeLoginPrompts = true      // the "forced login pop-up" remover: never on sites whose whole point is signing in
     var removeAppPrompts = true        // "open in app" banners

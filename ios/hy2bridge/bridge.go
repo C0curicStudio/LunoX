@@ -86,6 +86,7 @@ func Start(host string, port int, auth string, obfsPassword string, sni string, 
 			ServerAddr:  addr,
 			Auth:        auth,
 			TLSConfig:   tc,
+			FastOpen:    true, // TCP() returns at once instead of waiting a round trip for the server's answer: every new connection of a page starts one RTT sooner
 		}
 		if downMbps > 0 {
 			cfg.BandwidthConfig = client.BandwidthConfig{MaxRx: uint64(downMbps) * 125000}
@@ -110,7 +111,22 @@ func Start(host string, port int, auth string, obfsPassword string, sni string, 
 	hy, listener, status = c, ln, "idle"
 	mu.Unlock()
 	go serve(ln, c, token)
+	go Warm() // set the QUIC connection up now, not on the first tap
 	return ln.Addr().(*net.TCPAddr).Port, nil
+}
+
+// Warm opens (and drops) one tunnelled connection so the QUIC session is ready before the page asks for it.
+// Called at start and whenever the app returns to the foreground.
+func Warm() {
+	mu.Lock()
+	c := hy
+	mu.Unlock()
+	if c == nil {
+		return
+	}
+	if conn, err := dial(c, "cp.cloudflare.com:80"); err == nil {
+		_ = conn.Close()
+	}
 }
 
 // Stop closes the proxy and the Hysteria2 connection.

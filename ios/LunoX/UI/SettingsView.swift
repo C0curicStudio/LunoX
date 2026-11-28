@@ -276,6 +276,8 @@ struct PrivacySettings: View {
                 Toggle(isOn: $settings.prefs.blockPopups) { RowLabel(icon: "rectangle.on.rectangle.slash", title: "拦截弹出窗口") }
                 Toggle(isOn: $settings.prefs.blockAppPrompts) { RowLabel(icon: "arrow.up.forward.app", title: "拦截“打开 App”提示与跳转") }
                 Toggle(isOn: $settings.prefs.blockForcedLogin) { RowLabel(icon: "person.crop.circle.badge.xmark", title: "移除强制登录弹窗") }
+                NavigationLink { VaultView() } label: { RowLabel(icon: "key.fill", title: "密码与账号", value: "钥匙串 · Face ID") }
+                NavigationLink { SiteDataView() } label: { RowLabel(icon: "internaldrive", title: "网站数据管理", value: "Cookie 与存储") }
                 Toggle(isOn: $settings.prefs.appLock) { RowLabel(icon: "faceid", title: "Face ID / 密码锁定") }
             } footer: { Text("指纹防护不会把浏览器伪装成别的设备，那样反而容易被风控识别。它只对画布、音频这类“读取像素/采样来识别设备”的接口做不可见的微调：同一个网站每次读到的结果都一样，不同网站之间互不相同，所以不会出现“每天换设备”。验证码、反欺诈、登录和支付站点完全不处理。清除网站数据会同时更换这个标识。") }.sectionStyle(theme.surface)
             Section {
@@ -422,5 +424,171 @@ struct PolicyGroupsView: View {
         for other in Router.groups { settings.prefs.groupDomains[other.id]?.removeAll { $0 == t } }          // one group per site
         settings.prefs.groupDomains[g.id, default: []].append(t)
         draft[g.id] = ""; Haptics.ok(); router.apply()
+    }
+}
+
+
+// MARK: 密码与账号
+
+/// Every saved sign-in and account, grouped by site. Opens only after Face ID / passcode.
+struct VaultView: View {
+    @EnvironmentObject var store: BrowserStore
+    @Environment(\.theme) private var theme
+    @ObservedObject private var vault: Vault
+    @State private var unlocked = false
+    @State private var failed = false
+    @State private var adding = false
+    @State private var query = ""
+    init() { _vault = ObservedObject(wrappedValue: BrowserStoreHolder.shared.vault) }
+
+    var body: some View {
+        FlatList(title: "密码与账号") {
+            if !unlocked {
+                Section {
+                    Button { Task { await unlock() } } label: { RowLabel(icon: "faceid", title: failed ? "验证失败，点这里重试" : "用 Face ID 解锁") }
+                } footer: { Text("密码和账号登录状态只保存在这台手机的钥匙串里：不上传、不同步、不进备份，只有手机解锁并通过验证后才能查看或使用。") }.sectionStyle(theme.surface)
+            } else {
+                let sites = vault.sites.filter { query.isEmpty || $0.localizedCaseInsensitiveContains(query) }
+                Section {
+                    ForEach(sites, id: \.self) { site in
+                        NavigationLink { SiteVaultView(site: site) } label: {
+                            RowLabel(icon: "globe", title: site, value: "\(vault.data.credentials.filter { $0.site == site }.count) 密码 · \(vault.data.accounts.filter { $0.site == site }.count) 账号")
+                        }
+                    }
+                    if sites.isEmpty { Text(vault.sites.isEmpty ? "还没有保存任何密码或账号" : "没有匹配的网站").foregroundStyle(theme.inkSoft) }
+                } header: { Text("网站").textCase(nil) }.sectionStyle(theme.surface)
+                Section {
+                    Button { adding = true } label: { RowLabel(icon: "plus.circle", title: "添加密码") }
+                    Button(role: .destructive) { vault.lock(); vault.wipe() } label: { RowLabel(icon: "trash", title: "清除全部密码与账号") }
+                } footer: { Text("在网页登录页提交账号密码时会询问是否保存；点底栏的钥匙可一键填充或登录。账号档案保存的是登录状态（Cookie），可一键切换账号，请像密码一样保管这台手机。") }.sectionStyle(theme.surface)
+            }
+        }
+        .searchable(text: $query, prompt: "搜索网站")
+        .task { await unlock() }
+        .onDisappear { vault.lock() }
+        .sheet(isPresented: $adding) { AddCredentialView().presentationDetents([.medium]) }
+    }
+    private func unlock() async { unlocked = await vault.unlock(); failed = !unlocked }
+}
+
+/// Lets the settings pages reach the one Vault without threading it through every initialiser.
+@MainActor enum BrowserStoreHolder { static var shared: BrowserStore! }
+
+struct AddCredentialView: View {
+    @EnvironmentObject var store: BrowserStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var site = ""
+    @State private var user = ""
+    @State private var pass = ""
+    var preset: String = ""
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("网站，如 github.com", text: $site).textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                TextField("账号", text: $user).textInputAutocapitalization(.never).autocorrectionDisabled()
+                SecureField("密码", text: $pass)
+            }
+            .navigationTitle("添加密码").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("保存") {
+                        let host = site.replacingOccurrences(of: "https://", with: "").replacingOccurrences(of: "http://", with: "").split(separator: "/").first.map(String.init) ?? site
+                        store.vault.save(site: store.vault.site(for: host), username: user, password: pass); Haptics.ok(); dismiss()
+                    }.disabled(site.isEmpty || pass.isEmpty)
+                }
+            }
+            .onAppear { if site.isEmpty { site = preset } }
+        }
+    }
+}
+
+/// One site: its passwords, its account profiles and its stored data, in one place.
+struct SiteVaultView: View {
+    let site: String
+    @EnvironmentObject var store: BrowserStore
+    @Environment(\.theme) private var theme
+    @ObservedObject private var vault: Vault
+    @State private var revealed = Set<UUID>()
+    @State private var cookies = 0
+    @State private var renaming: AccountProfile?
+    @State private var newLabel = ""
+    @State private var adding = false
+    init(site: String) { self.site = site; _vault = ObservedObject(wrappedValue: BrowserStoreHolder.shared.vault) }
+
+    var body: some View {
+        FlatList(title: site) {
+            let creds = vault.data.credentials.filter { $0.site == site }, accts = vault.data.accounts.filter { $0.site == site }
+            Section {
+                ForEach(creds) { c in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(c.username.isEmpty ? "（无账号）" : c.username).font(.system(size: 16, weight: .medium))
+                        HStack {
+                            Text(revealed.contains(c.id) ? c.password : String(repeating: "•", count: min(12, max(6, c.password.count)))).font(.system(.body, design: .monospaced)).foregroundStyle(theme.inkSoft)
+                            Spacer()
+                            Button { if revealed.contains(c.id) { revealed.remove(c.id) } else { revealed.insert(c.id) } } label: { Image(systemName: revealed.contains(c.id) ? "eye.slash" : "eye") }.buttonStyle(.plain)
+                            Button { UIPasteboard.general.setItems([[UIPasteboard.typeAutomatic: c.password]], options: [.expirationDate: Date().addingTimeInterval(60), .localOnly: true]); Haptics.ok() } label: { Image(systemName: "doc.on.doc") }.buttonStyle(.plain)
+                        }
+                        Text("更新于 \(c.updatedAt.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(theme.inkSoft)
+                    }
+                    .swipeActions { Button(role: .destructive) { vault.delete(c) } label: { Label("删除", systemImage: "trash") } }
+                }
+                if creds.isEmpty { Text("没有保存的密码").foregroundStyle(theme.inkSoft) }
+                Button { adding = true } label: { RowLabel(icon: "plus.circle", title: "添加密码") }
+            } header: { Text("密码").textCase(nil) }.sectionStyle(theme.surface)
+
+            Section {
+                ForEach(accts) { a in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(a.label).font(.system(size: 16, weight: .medium))
+                        Text("\(a.cookies.count) 个 Cookie · 保存于 \(a.savedAt.formatted(date: .abbreviated, time: .shortened))" + (a.lastUsed.map { " · 上次使用 \($0.formatted(date: .abbreviated, time: .omitted))" } ?? "")).font(.caption).foregroundStyle(theme.inkSoft)
+                        Button("在当前标签页登录") { if let t = store.current { Task { await t.loginWith(a) } } }.font(.system(size: 14, weight: .semibold))
+                    }
+                    .swipeActions {
+                        Button(role: .destructive) { vault.delete(a) } label: { Label("删除", systemImage: "trash") }
+                        Button { renaming = a; newLabel = a.label } label: { Label("重命名", systemImage: "pencil") }.tint(.orange)
+                    }
+                }
+                if accts.isEmpty { Text("在该网站登录后，用底栏的钥匙或网站菜单把登录状态保存为账号。").font(.footnote).foregroundStyle(theme.inkSoft) }
+            } header: { Text("账号（一键登录）").textCase(nil) }.sectionStyle(theme.surface)
+
+            Section {
+                RowLabel(icon: "circle.grid.2x2", title: "Cookie", value: "\(cookies) 个")
+                Button(role: .destructive) { Task { await vault.clearSiteData(site, in: store.dataStore(isPrivate: false)); cookies = await vault.cookieCount(site: site, in: store.dataStore(isPrivate: false)); Haptics.ok() } } label: { RowLabel(icon: "trash", title: "清除此网站的 Cookie 与数据") }
+                Toggle(isOn: Binding(get: { vault.isNeverSave(site) }, set: { $0 ? vault.neverSave(site) : vault.allowSave(site) })) { RowLabel(icon: "key.slash", title: "不再询问是否保存密码") }
+            } header: { Text("网站数据").textCase(nil) }.sectionStyle(theme.surface)
+        }
+        .task { cookies = await vault.cookieCount(site: site, in: store.dataStore(isPrivate: false)) }
+        .alert("重命名账号", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("名称", text: $newLabel)
+            Button("好") { if let a = renaming { vault.rename(a, to: newLabel) }; renaming = nil }
+            Button("取消", role: .cancel) { renaming = nil }
+        }
+        .sheet(isPresented: $adding) { AddCredentialView(preset: site).presentationDetents([.medium]) }
+    }
+}
+
+/// All websites that stored something on this phone, with the amount, and a way to remove each (or all of it).
+struct SiteDataView: View {
+    @EnvironmentObject var store: BrowserStore
+    @Environment(\.theme) private var theme
+    @State private var rows: [(name: String, kinds: Int)] = []
+    @State private var query = ""
+    var body: some View {
+        FlatList(title: "网站数据管理") {
+            Section {
+                ForEach(rows.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }, id: \.name) { r in
+                    RowLabel(icon: "globe", title: r.name, value: "\(r.kinds) 类")
+                        .swipeActions { Button(role: .destructive) { Task { await store.vault.clearSiteData(URLResolver.registrableDomain(r.name), in: store.dataStore(isPrivate: false)); await reload() } } label: { Label("清除", systemImage: "trash") } }
+                }
+                if rows.isEmpty { Text("没有网站数据").foregroundStyle(theme.inkSoft) }
+            } header: { Text("\(rows.count) 个网站").textCase(nil) } footer: { Text("左滑一个网站可清除它的 Cookie、本地存储和缓存。清除后该网站需要重新登录（已保存的账号档案不受影响，可一键恢复）。") }.sectionStyle(theme.surface)
+        }
+        .searchable(text: $query, prompt: "搜索网站")
+        .task { await reload() }
+    }
+    private func reload() async {
+        let recs = await store.dataStore(isPrivate: false).dataRecords(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes())
+        rows = recs.map { ($0.displayName, $0.dataTypes.count) }.sorted { $0.name < $1.name }
     }
 }
