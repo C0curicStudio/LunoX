@@ -44,6 +44,11 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
     @Published var readable = false
     @Published var fixedBottom = 0
     @Published var stuck = false
+    @Published var pageLang: String?
+    @Published var canTranslate = false
+    @Published var translated = false
+    @Published var translating = false
+    @Published var translateDismissed = false
 
     private(set) var webView: WKWebView?
     var restoreState: Data?
@@ -83,6 +88,8 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         wv.uiDelegate = self
         wv.allowsBackForwardNavigationGestures = true
         wv.allowsLinkPreview = true
+        wv.scrollView.pinchGestureRecognizer?.isEnabled = false      // no pinch zoom: pages behave like native screens
+        wv.scrollView.bouncesZoom = false
         wv.isOpaque = true                      // opaque layers composite faster than blended ones
         wv.backgroundColor = UIColor(store.pageBackdrop)
         wv.scrollView.backgroundColor = UIColor(store.pageBackdrop)
@@ -174,6 +181,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         let wv = ensureWebView()
         showingCachedCopy = false
         readable = false; fixedBottom = 0; stuck = false
+        translated = false; canTranslate = false; translateDismissed = false
         Task { [weak self] in                       // still blank after 10s -> offer the connection diagnostics
             try? await Task.sleep(nanoseconds: 10_000_000_000)
             guard let self, self.isLoading, self.progress < 0.3, self.url?.host == url.host else { return }
@@ -249,8 +257,10 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         case "page":
             readable = (body["readable"] as? Bool) ?? false
             fixedBottom = (body["fixedBottom"] as? Int) ?? 0
+            detectLanguage(sample: (body["sample"] as? String) ?? "")
             syncInset()
             if fixedBottom > 0, store.current === self { store.setBars(collapsed: true) }   // the page has its own bottom bar: stay out of its way
+        case "dom-more": if translated, !translating { Task { await translate() } }
         case "meta":
             if let t = body["title"] as? String, !t.isEmpty { title = t }
             if let c = (body["themeColor"] as? String).flatMap(Tab.parseColor) ?? (body["bg"] as? String).flatMap(Tab.parseColor) { tint = Color(uiColor: c) }
@@ -286,6 +296,33 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
             _ = await js("window.__luno && (window.__luno.setDark(\(dark)), window.__luno.setAccent('\(accent)'))")
         }
     }
+
+    // MARK: translation
+
+    private func detectLanguage(sample: String) {
+        let target = store.settings.translateTarget
+        guard sample.count > 60, let d = LanguageUtil.detect(sample) else { canTranslate = false; return }
+        pageLang = d.code
+        canTranslate = d.confidence >= 0.6 && !LanguageUtil.same(d.code, target)
+        if canTranslate, store.settings.prefs.autoTranslate, !isPrivate, !translated { Task { await translate() } }
+    }
+
+    /// Translates the page in place (on-device Translation framework, or the server's AI as fallback).
+    func translate() async {
+        guard !translating, webView != nil else { return }
+        translating = true; defer { translating = false }
+        guard let pack = await js("window.__luno.translateCollect()") as? [String: Any],
+              let ids = pack["ids"] as? [Int], let texts = pack["texts"] as? [String], !texts.isEmpty else { return }
+        let target = store.settings.translateTarget
+        guard let out = await store.translator.translate(texts, source: pageLang, target: target), out.count == texts.count else {
+            note = "翻译失败：请检查语言包下载，或在 设置 › 智能与 AI 配置模型"; Haptics.warn(); return
+        }
+        _ = try? await webView?.callAsyncJavaScript("window.__luno.translateApply(ids, texts)", arguments: ["ids": ids, "texts": out], in: nil, contentWorld: NativeAdapter.world)
+        if !translated { Haptics.ok() }
+        translated = true
+    }
+
+    func showOriginal() { Task { _ = await js("window.__luno.translateRestore()"); translated = false } }
 
     // MARK: scroll -> collapse chrome
 
@@ -357,6 +394,8 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         if let u = webView.url, u.scheme != "about" { url = u }
         if loadingArchive { showingCachedCopy = true }
+        translated = false; canTranslate = false; translateDismissed = false; pageLang = nil
+        webView.scrollView.pinchGestureRecognizer?.isEnabled = false
         favicon = webView.url?.host.flatMap { store.icon(for: $0) }
     }
 

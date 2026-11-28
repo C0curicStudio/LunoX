@@ -24,13 +24,15 @@ struct RootView: View {
 
             VStack(spacing: 8) {
                 StatusPills()
+                if let t = store.current { TranslateBanner(tab: t) }
                 if let t = store.current { StuckChip(tab: t) { menuRoute = .diagnostics; showMenu = true } }
                 Spacer()
                 if let tab = store.current {
                     if showFind { FindBar(tab: tab) { withAnimation(.snappy) { showFind = false } }.transition(.move(edge: .bottom).combined(with: .opacity)) }
                     BottomChrome(tab: tab, ns: ns, searching: searching,
                                  onSearch: openSearch, onSite: { showSite = true }, onMenu: { showMenu = true }, onTabs: openSwitcher,
-                                 onReader: { menuRoute = .reader; showMenu = true })
+                                 onReader: { menuRoute = .reader; showMenu = true },
+                                 onTranslate: { if tab.translated { tab.showOriginal() } else { Task { await tab.translate() } } })
                 }
             }
             .padding(.bottom, 2).zIndex(2)
@@ -43,6 +45,7 @@ struct RootView: View {
                 TabSwitcher(ns: heroNS, pick: pickTab).transition(.opacity).zIndex(4)
             }
         }
+        .translationHost(store.translator.coord)
         .onChange(of: store.searchRequest) { _, _ in openSearch() }
         .sheet(isPresented: $showMenu, onDismiss: { menuRoute = nil; menuDetent = .medium }) {
             MenuSheet(onFind: { withAnimation(.snappy) { showFind = true } }, initialRoute: menuRoute, onDeep: { menuDetent = .large })
@@ -218,6 +221,30 @@ struct StuckChip: View {
                 Label("加载很慢？点此检查连接", systemImage: "stethoscope").font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundStyle(theme.ink)
                     .padding(.horizontal, 14).padding(.vertical, 9).lunoGlass(Capsule())
             }.buttonStyle(PressableStyle()).transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
+}
+
+/// Safari-style offer shown once a foreign-language page has been recognised.
+struct TranslateBanner: View {
+    @ObservedObject var tab: Tab
+    @EnvironmentObject var settings: Settings
+    @Environment(\.theme) private var theme
+    var body: some View {
+        if tab.canTranslate && !tab.translated && !tab.translateDismissed, let l = tab.pageLang {
+            HStack(spacing: 10) {
+                Image(systemName: "character.bubble").foregroundStyle(theme.accent)
+                Text("此页面为\(LanguageUtil.name(l))").font(.system(size: 13, weight: .medium, design: .rounded)).foregroundStyle(theme.ink)
+                Button { Task { await tab.translate() } } label: {
+                    Text(tab.translating ? "翻译中…" : "翻译成\(LanguageUtil.name(settings.translateTarget))").font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white).padding(.horizontal, 12).padding(.vertical, 6).background(theme.accent, in: Capsule())
+                }.buttonStyle(PressableStyle(scale: 0.92)).disabled(tab.translating)
+                Button { withAnimation(.snappy) { tab.translateDismissed = true } } label: {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(theme.inkSoft).frame(width: 24, height: 24)
+                }.buttonStyle(.plain)
+            }
+            .padding(.leading, 14).padding(.trailing, 8).padding(.vertical, 7)
+            .lunoGlass(Capsule()).transition(.move(edge: .top).combined(with: .opacity))
         }
     }
 }

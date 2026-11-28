@@ -116,6 +116,7 @@ async function route(req, res) {
     const body = await readJson(req);
     const args = body.args || {};
     for (const k of ['text', 'results']) if (typeof args[k] === 'string') args[k] = args[k].slice(0, 60000);
+    if (Array.isArray(args.items)) args.items = args.items.slice(0, 80).map((x) => String(x).slice(0, 1000));
     for (const k of ['question', 'goal']) if (typeof args[k] === 'string') args[k] = args[k].slice(0, 2000);
     if (body.task === 'search_answer' && !args.results) {
       const rs = await misc.webSearch(args.question);

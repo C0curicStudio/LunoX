@@ -14,6 +14,7 @@ final class BrowserStore: ObservableObject {
     let router: Router
     let gateway: GatewayClient
     let edge: EdgeSelector
+    let translator: Translator
     let offline = OfflineCache()
     let downloads = DownloadManager()
     let extensions = ExtensionManager()
@@ -55,6 +56,7 @@ final class BrowserStore: ObservableObject {
         router = Router(settings: s)
         gateway = GatewayClient(settings: s)
         edge = EdgeSelector(settings: s, gateway: gateway)
+        translator = Translator(gateway: gateway)
         bookmarks = bookmarksFile.load([])
         history = historyFile.load([])
         scriptHandler.store = self

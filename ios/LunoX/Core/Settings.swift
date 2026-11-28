@@ -20,6 +20,8 @@ struct Prefs: Codable, Equatable {
     var nativeMode = true
     var autoDarkPages = true
     var preferEdgeTunnel = false
+    var translateTarget = ""          // "" = follow the phone's language
+    var autoTranslate = false
     var hideCookieBanners = true
     var offlineCache = true
     var offlineLimitMB = 300
@@ -58,6 +60,7 @@ final class Settings: ObservableObject {
         get { Keychain.get("gateway-key") }
         set { Keychain.set(newValue, for: "gateway-key"); keyRevision += 1 }
     }
+    var translateTarget: String { prefs.translateTarget.isEmpty ? LanguageUtil.systemTarget() : prefs.translateTarget }
     var gatewayConfigured: Bool { !gatewayKey.isEmpty && !prefs.gatewayHost.isEmpty && Pinning.normalize(prefs.gatewayPin).count == 64 }
     var engine: SearchEngine { SearchEngine.all.first { $0.id == prefs.engineID } ?? SearchEngine.all[0] }
     var family: ThemeFamily { ThemeFamily.all.first { $0.id == prefs.themeID } ?? ThemeFamily.all[0] }

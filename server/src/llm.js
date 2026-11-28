@@ -24,6 +24,10 @@ const TASKS = {
     system: SYSTEM_BASE + ' Output only the translation.',
     user: `把下面内容翻译成${a.target || '简体中文'}，保持原有段落结构。\n<page>\n${a.text}\n</page>`,
   }),
+  translate_batch: (a) => ({
+    system: SYSTEM_BASE + ' You translate JSON arrays of UI strings. Output ONLY a JSON array of strings, same length and order, each element being the translation of the matching input. Keep numbers, URLs, brand names and punctuation. No commentary.',
+    user: `Translate every element into ${String(a.target || '简体中文').slice(0, 40)}.\n<items>\n${JSON.stringify(a.items)}\n</items>`,
+  }),
   search_answer: (a) => ({
     system: SYSTEM_BASE + ' Cite sources as [n] using the numbering in <results>.',
     user: `问题：${a.question}\n<results>\n${a.results}\n</results>\n请综合搜索结果作答，并用 [n] 标注来源。`,

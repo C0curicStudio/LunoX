@@ -188,6 +188,38 @@ final class GatewayClient: NSObject, URLSessionDelegate {
         return try JSONDecoder().decode(R.self, from: d).results
     }
 
+    /// Fallback translation through the server's AI model (JSON array in, JSON array out), chunked and run 3 at a time.
+    func translateBatch(_ texts: [String], target: String) async throws -> [String] {
+        var chunks: [[String]] = []; var cur: [String] = []; var chars = 0
+        for t in texts {
+            let x = String(t.prefix(800))
+            if cur.count >= 50 || chars + x.count > 4500 { chunks.append(cur); cur = []; chars = 0 }
+            cur.append(x); chars += x.count
+        }
+        if !cur.isEmpty { chunks.append(cur) }
+        var results = [[String]](repeating: [], count: chunks.count)
+        try await withThrowingTaskGroup(of: (Int, [String]).self) { g in
+            var next = 0, running = 0
+            func add() {
+                guard next < chunks.count else { return }
+                let i = next, c = chunks[i]; next += 1; running += 1
+                g.addTask { (i, try await self.translateChunk(c, target: target)) }
+            }
+            for _ in 0..<3 { add() }
+            while running > 0, let (i, r) = try await g.next() { results[i] = r; running -= 1; add() }
+        }
+        return results.flatMap { $0 }
+    }
+    private func translateChunk(_ items: [String], target: String) async throws -> [String] {
+        let body = try JSONSerialization.data(withJSONObject: ["task": "translate_batch", "args": ["items": items, "target": LanguageUtil.name(target)]])
+        let r = try await makeRequest("/v1/ai", method: "POST", body: body, timeout: 70)
+        let (d, _) = try await send(r)
+        struct R: Decodable { var text: String? }
+        guard let t = try JSONDecoder().decode(R.self, from: d).text, let a = t.firstIndex(of: "["), let b = t.lastIndex(of: "]"),
+              let arr = try? JSONSerialization.jsonObject(with: Data(t[a...b].utf8)) as? [String], arr.count == items.count else { throw GatewayError.bad }
+        return arr
+    }
+
     func act(args: [String: Any]) async throws -> AgentPlan {
         let body = try JSONSerialization.data(withJSONObject: ["task": "act", "args": args])
         let r = try await makeRequest("/v1/ai", method: "POST", body: body, timeout: 60)

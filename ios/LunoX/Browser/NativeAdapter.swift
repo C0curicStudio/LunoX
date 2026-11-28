@@ -136,33 +136,57 @@ enum NativeAdapter {
       function idle(f) { (window.requestIdleCallback || function (g) { setTimeout(g, 200); })(f, { timeout: 1500 }); }
       function addMeta(n, c) { var m = document.createElement('meta'); m.name = n; m.content = c; (document.head || document.documentElement).appendChild(m); return m; }
 
-      // pages without a viewport: make fluid ones fill the phone, fit genuinely desktop-only ones instead of scrolling sideways
-      function fitViewport() {
+      // ---------- native-app behaviour: the page can not be zoomed; we fit it to the phone ourselves ----------
+      function deviceWidth() {
+        var o = Math.abs(window.orientation || 0) === 90;
+        return o ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+      }
+      var lockState = { content: '' };
+      // Rewrites the viewport so user zoom is impossible; `opt.width`/`opt.scale` force a fit for desktop-only layouts.
+      function lockViewport(opt) {
+        opt = opt || {};
         var vp = document.querySelector('meta[name=viewport]');
-        // viewport-fit=cover makes iOS stop insetting the page below the status bar / home indicator: our toolbar already handles it
-        if (vp && /viewport-fit\s*=\s*cover/i.test(vp.content)) vp.content = vp.content.replace(/,?\s*viewport-fit\s*=\s*cover/ig, '');
-        if (!OPT.native || vp) return;
-        var m = addMeta('viewport', 'width=device-width, initial-scale=1');
+        var base = vp ? vp.content : 'width=device-width';
+        var parts = base.split(',').map(function (s) { return s.trim(); }).filter(function (p) {
+          return p && !/^(initial-scale|minimum-scale|maximum-scale|user-scalable|viewport-fit)\s*=/i.test(p);
+        });
+        var wm = /(?:^|,)\s*width\s*=\s*([\d.]+)/i.exec(base);
+        var im = /initial-scale\s*=\s*([\d.]+)/i.exec(base);
+        var scale = 1;
+        if (opt.scale) { scale = opt.scale; parts = parts.filter(function (p) { return !/^width\s*=/i.test(p); }); parts.unshift('width=' + opt.width); }
+        else if (wm) { scale = im ? parseFloat(im[1]) : deviceWidth() / parseFloat(wm[1]); }   // fixed-width viewport: scale it to fit
+        else if (!parts.some(function (p) { return /^width\s*=/i.test(p); })) parts.unshift('width=device-width');
+        scale = Math.max(0.25, Math.min(scale, 1));
+        var s = scale.toFixed(4);
+        parts.push('initial-scale=' + s, 'minimum-scale=' + s, 'maximum-scale=' + s, 'user-scalable=no');
+        var content = parts.join(', ');
+        lockState.content = content;
+        if (!vp) vp = addMeta('viewport', content); else if (vp.content !== content) vp.content = content;
+        return vp;
+      }
+      function fitViewport() {
+        if (!OPT.native) return;
+        lockViewport();
         requestAnimationFrame(function () { requestAnimationFrame(function () {
-          var de = document.documentElement;
-          if (de.scrollWidth - innerWidth > innerWidth * 0.2) {
-            var w = Math.min(de.scrollWidth, 2000);
-            m.content = 'width=' + w + ', initial-scale=' + (screen.width / w).toFixed(3);
+          var de = document.documentElement, dw = deviceWidth();
+          var over = de.scrollWidth - innerWidth;
+          // still wider than the phone (desktop-only layout): shrink the whole page so it fits exactly
+          if (over > innerWidth * 0.08 && de.scrollWidth > dw) {
+            var w = Math.min(de.scrollWidth, 2600);
+            lockViewport({ width: w, scale: dw / w });
             state.desktop = true;
           }
         }); });
       }
-      // keep iOS from zooming into small inputs on focus, then restore the page's own viewport
-      document.addEventListener('focusin', function (e) {
-        var t = e.target; if (!t || !/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)) return;
-        if (parseFloat(getComputedStyle(t).fontSize) >= 16) return;
-        var m = document.querySelector('meta[name=viewport]');
-        if (m && m.__lunoOrig === undefined) { m.__lunoOrig = m.content; m.content = m.content + ', maximum-scale=1'; }
-      }, true);
-      document.addEventListener('focusout', function () {
-        var m = document.querySelector('meta[name=viewport]');
-        if (m && m.__lunoOrig !== undefined) { m.content = m.__lunoOrig; delete m.__lunoOrig; }
-      }, true);
+      // pages that (re)write their viewport later must not get zoom back
+      function guardViewport() {
+        try {
+          new MutationObserver(function () {
+            var vp = document.querySelector('meta[name=viewport]');
+            if (OPT.native && (!vp || vp.content !== lockState.content)) lockViewport();
+          }).observe(document.head, { childList: true, subtree: true, attributes: true, attributeFilter: ['content', 'name'] });
+        } catch (e) {}
+      }
 
       // page-owned bars glued to the bottom edge would hide behind our floating toolbar: lift them by the toolbar height
       function scanFixed() {
@@ -217,13 +241,54 @@ enum NativeAdapter {
       function adapt() {
         state.light = bgLum() > 0.72; applyDark();
         state.fixed = scanFixed(); state.readable = readable();
-        post({ type: 'page', readable: state.readable, fixedBottom: state.fixed, desktop: state.desktop, light: state.light });
+        var sample = ((document.body && document.body.innerText) || '').replace(/\s+/g, ' ').slice(0, 1500);
+        post({ type: 'page', readable: state.readable, fixedBottom: state.fixed, desktop: state.desktop, light: state.light,
+               lang: (document.documentElement.lang || '').toLowerCase(), sample: sample });
       }
       if (OPT.native) setAccent('__ACCENT__');
-      document.addEventListener('DOMContentLoaded', function () { fitViewport(); });
+      document.addEventListener('DOMContentLoaded', function () { fitViewport(); guardViewport(); });
       window.addEventListener('load', function () { idle(function () { setTimeout(adapt, 250); }); });
 
-      window.__luno = { text: text, snapshot: snapshot, run: run, reader: reader, meta: meta, setInset: setInset, setDark: setDark, setAccent: setAccent, adapt: adapt };
+      // ---------- in-place translation (text nodes only; originals are kept so the page can be restored) ----------
+      var tr = { nodes: {}, orig: {}, next: 1, on: false, observer: null, timer: null };
+      var SKIP = /^(SCRIPT|STYLE|NOSCRIPT|CODE|PRE|TEXTAREA|INPUT|SELECT|SVG|CANVAS|KBD|SAMP)$/;
+      function translateCollect() {
+        var ids = [], texts = [], chars = 0;
+        if (!document.body) return { ids: ids, texts: texts };
+        var w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+        var n;
+        while ((n = w.nextNode()) && ids.length < 900 && chars < 40000) {
+          var p = n.parentElement; if (!p || SKIP.test(p.tagName) || p.isContentEditable) continue;
+          var t = n.nodeValue; if (!t || t.trim().length < 2 || !/\p{L}/u.test(t)) continue;
+          if (n.__lunoDone && n.__lunoDone === t) continue;           // already translated by us
+          var id = n.__lunoId || (n.__lunoId = tr.next++);
+          tr.nodes[id] = n; if (!(id in tr.orig)) tr.orig[id] = t;
+          ids.push(id); texts.push(t.trim()); chars += t.length;
+        }
+        return { ids: ids, texts: texts };
+      }
+      function translateApply(ids, texts) {
+        for (var i = 0; i < ids.length; i++) {
+          var n = tr.nodes[ids[i]]; if (!n || !texts[i]) continue;
+          var o = n.nodeValue, lead = (o.match(/^\s*/) || [''])[0], trail = (o.match(/\s*$/) || [''])[0];
+          n.nodeValue = lead + texts[i] + trail; n.__lunoDone = n.nodeValue;
+        }
+        tr.on = true; watchMore();
+      }
+      function translateRestore() {
+        for (var id in tr.nodes) { var n = tr.nodes[id]; if (n && tr.orig[id] !== undefined) { n.nodeValue = tr.orig[id]; n.__lunoDone = null; } }
+        tr.on = false; if (tr.observer) { tr.observer.disconnect(); tr.observer = null; }
+      }
+      function watchMore() {                                          // content added later (infinite scroll, SPA) gets translated too
+        if (tr.observer || !document.body) return;
+        tr.observer = new MutationObserver(function () {
+          if (!tr.on) return; clearTimeout(tr.timer);
+          tr.timer = setTimeout(function () { post({ type: 'dom-more' }); }, 900);
+        });
+        tr.observer.observe(document.body, { childList: true, subtree: true });
+      }
+
+      window.__luno = { translateCollect: translateCollect, translateApply: translateApply, translateRestore: translateRestore, text: text, snapshot: snapshot, run: run, reader: reader, meta: meta, setInset: setInset, setDark: setDark, setAccent: setAccent, adapt: adapt };
     })();
     """#
 }

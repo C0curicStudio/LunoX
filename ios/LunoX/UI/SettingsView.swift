@@ -92,6 +92,14 @@ struct GeneralSettings: View {
                 }
             }.sectionStyle(theme.surface)
             Section {
+                Picker(selection: $settings.prefs.translateTarget) {
+                    Text("跟随系统（\(LanguageUtil.name(LanguageUtil.systemTarget()))）").tag("")
+                    ForEach(LanguageUtil.supported, id: \.code) { Text($0.name).tag($0.code) }
+                } label: { RowLabel(icon: "character.bubble", title: "翻译成") }
+                Toggle(isOn: $settings.prefs.autoTranslate) { RowLabel(icon: "wand.and.stars", title: "自动翻译外语网页") }
+            } header: { Text("翻译").textCase(nil) }
+            footer: { Text("自动识别网页语言，在页面内就地翻译（iOS 18 以上使用系统离线翻译，首次会下载语言包；其余情况由服务器 AI 翻译）。") }.sectionStyle(theme.surface)
+            Section {
                 Toggle(isOn: $settings.prefs.searchSuggest) { RowLabel(icon: "text.magnifyingglass", title: "搜索建议") }
                 Toggle(isOn: $settings.prefs.restoreTabs) { RowLabel(icon: "arrow.counterclockwise", title: "启动时恢复标签页") }
                 Toggle(isOn: $settings.prefs.defaultDesktop) { RowLabel(icon: "desktopcomputer", title: "默认请求桌面版网站") }

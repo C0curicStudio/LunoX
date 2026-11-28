@@ -87,3 +87,19 @@ final class RouterTests: XCTestCase {
         XCTAssertFalse(s.applySetupLink(URL(string: "lunox://setup?host=1.2.3.4&key=k&pin=short")!))
     }
 }
+
+final class LanguageTests: XCTestCase {
+    func testFamilyAndSame() {
+        XCTAssertTrue(LanguageUtil.same("zh-Hans", "zh-Hant")); XCTAssertTrue(LanguageUtil.same("en-US", "en"))
+        XCTAssertFalse(LanguageUtil.same("fr", "en"))
+    }
+    func testDetectsLanguages() {
+        XCTAssertEqual(LanguageUtil.detect("The quick brown fox jumps over the lazy dog and keeps running through the forest.")?.code, "en")
+        XCTAssertEqual(LanguageUtil.detect("Le renard brun rapide saute par-dessus le chien paresseux et court dans la forêt.")?.code, "fr")
+        XCTAssertEqual(LanguageUtil.detect("今天天气很好，我们一起去公园散步，然后在附近的餐厅吃午饭。")?.code, "zh-Hans")
+    }
+    func testNamesAndTarget() {
+        XCTAssertEqual(LanguageUtil.name("fr"), "Français")
+        XCTAssertTrue(LanguageUtil.supported.contains { $0.code == LanguageUtil.systemTarget() })
+    }
+}

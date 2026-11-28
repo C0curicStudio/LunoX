@@ -12,6 +12,7 @@ struct BottomChrome: View {
     var onMenu: () -> Void
     var onTabs: () -> Void
     var onReader: () -> Void
+    var onTranslate: () -> Void
 
     var body: some View {
         let collapsed = store.barsCollapsed && !tab.isBlank
@@ -43,6 +44,14 @@ struct BottomChrome: View {
                     .foregroundStyle(tab.isBlank ? theme.inkSoft : theme.ink)
                     .lineLimit(1).frame(maxWidth: .infinity, alignment: collapsed ? .center : .leading)
                     .allowsHitTesting(false)
+                if !collapsed && (tab.canTranslate || tab.translated) {
+                    Button { Haptics.tap(); onTranslate() } label: {
+                        Group {
+                            if tab.translating { ProgressView().controlSize(.small) }
+                            else { Image(systemName: tab.translated ? "character.bubble.fill" : "character.bubble").font(.system(size: 15, weight: .semibold)).foregroundStyle(theme.accent) }
+                        }.frame(width: 34, height: 40).contentShape(Rectangle())
+                    }.buttonStyle(PressableStyle(scale: 0.85)).transition(.scale.combined(with: .opacity))
+                }
                 if !collapsed && tab.readable && !tab.isLoading {
                     Button { Haptics.tap(); onReader() } label: {
                         Image(systemName: "text.page").font(.system(size: 15, weight: .semibold)).foregroundStyle(theme.accent).frame(width: 34, height: 40).contentShape(Rectangle())
