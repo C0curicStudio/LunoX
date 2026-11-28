@@ -16,6 +16,7 @@ final class BrowserStore: ObservableObject {
     let edge: EdgeSelector
     let translator: Translator
     let hy2 = Hy2Manager()
+    let fingerprintHandler = FingerprintHandler()
     let news: NewsStore
     @Published var newsRequest = 0
     private(set) lazy var templates = TemplateService(engine: NewsEngine(gateway: gateway, router: router, settings: settings))
@@ -67,6 +68,7 @@ final class BrowserStore: ObservableObject {
         bookmarks = bookmarksFile.load([])
         history = historyFile.load([])
         scriptHandler.store = self
+        fingerprintHandler.store = self
         router.edge = edge
         router.hy2 = hy2
         gateway.hy2 = hy2
@@ -313,6 +315,7 @@ final class BrowserStore: ObservableObject {
         if h { clearHistory() }
         if o { offline.clear() }
         if h || website { TranslationCache.shared.clear() }
+        if website { FingerprintGuard.rotateSecret() }
         if website {
             await WKWebsiteDataStore.default().removeData(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
             router.reset()

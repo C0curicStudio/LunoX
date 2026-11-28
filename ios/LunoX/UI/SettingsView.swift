@@ -269,11 +269,13 @@ struct PrivacySettings: View {
             Section {
                 Toggle(isOn: $settings.prefs.blockTrackers) { RowLabel(icon: "hand.raised", title: "拦截广告与跟踪器") }
                 Toggle(isOn: $settings.prefs.httpsOnly) { RowLabel(icon: "lock", title: "仅 HTTPS（自动升级）") }
+                Toggle(isOn: $settings.prefs.fingerprintProtection) { RowLabel(icon: "touchid", title: "指纹防护（稳定、不伪装）") }
+                Toggle(isOn: $settings.prefs.stripTrackingParams) { RowLabel(icon: "link.badge.minus", title: "移除链接里的追踪参数") }
                 Toggle(isOn: $settings.prefs.blockPopups) { RowLabel(icon: "rectangle.on.rectangle.slash", title: "拦截弹出窗口") }
                 Toggle(isOn: $settings.prefs.blockAppPrompts) { RowLabel(icon: "arrow.up.forward.app", title: "拦截“打开 App”提示与跳转") }
                 Toggle(isOn: $settings.prefs.blockForcedLogin) { RowLabel(icon: "person.crop.circle.badge.xmark", title: "移除强制登录弹窗") }
                 Toggle(isOn: $settings.prefs.appLock) { RowLabel(icon: "faceid", title: "Face ID / 密码锁定") }
-            }.sectionStyle(theme.surface)
+            } footer: { Text("指纹防护不会把浏览器伪装成别的设备，那样反而容易被风控识别。它只对画布、音频这类“读取像素/采样来识别设备”的接口做不可见的微调：同一个网站每次读到的结果都一样，不同网站之间互不相同，所以不会出现“每天换设备”。验证码、反欺诈、登录和支付站点完全不处理。清除网站数据会同时更换这个标识。") }.sectionStyle(theme.surface)
             Section {
                 Button(role: .destructive) { confirmClear = true } label: { RowLabel(icon: "trash", title: "清除浏览数据…") }
             }.sectionStyle(theme.surface)

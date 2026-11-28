@@ -53,6 +53,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
     func dismissTranslateBanner() { translateDismissed = true; dismissedHost = (webView?.url ?? url)?.host }
     @Published var template: TemplateRoute?     // set = a native page replaces the web view
     private var retriedDirect = Set<String>()
+    @Published var fingerprintHits = 0
     var lastTemplate: TemplateRoute?            // the native page the user left for "原网页"
     var pendingNative = false                   // user went to sign in: switch to the native page once they are in
     var webMode = false                         // user chose "原网页": links stay on the web
@@ -150,11 +151,29 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         cfg.preferences.isFraudulentWebsiteWarningEnabled = true
         let ucc = WKUserContentController()
         ucc.add(store.scriptHandler, contentWorld: NativeAdapter.world, name: "luno")
-        ucc.addUserScript(NativeAdapter.userScript(native: s.prefs.nativeMode, hideCookies: s.prefs.hideCookieBanners, autoDark: s.prefs.autoDarkPages && store.isDark, accent: store.accentHex, blockApps: s.prefs.blockAppPrompts, blockLogin: s.prefs.blockForcedLogin))
-        store.extensions.userScripts().forEach { ucc.addUserScript($0) }
+        ucc.add(store.fingerprintHandler, contentWorld: .page, name: FingerprintGuard.messageName)
+        installScripts(ucc)
         if s.prefs.blockTrackers, let list = store.blocker.list { ucc.add(list) }
         cfg.userContentController = ucc
         return cfg
+    }
+
+    private func installScripts(_ ucc: WKUserContentController) {
+        let s = store.settings
+        ucc.addUserScript(NativeAdapter.userScript(native: s.prefs.nativeMode, hideCookies: s.prefs.hideCookieBanners, autoDark: s.prefs.autoDarkPages && store.isDark, accent: store.accentHex, blockApps: s.prefs.blockAppPrompts, blockLogin: s.prefs.blockForcedLogin))
+        if s.prefs.fingerprintProtection {
+            let loose = s.sites.filter { $0.value.fingerprintLoose }.keys.map { String($0) }
+            let pay = Router.groups.first { $0.id == "pay" }?.domains ?? []
+            ucc.addUserScript(FingerprintGuard.userScript(skip: loose + pay))
+        }
+        store.extensions.userScripts().forEach { ucc.addUserScript($0) }
+    }
+
+    /// Re-install the page scripts (after a per-site fingerprint setting changed); takes effect on the next load.
+    func rebuildScripts() {
+        guard let ucc = webView?.configuration.userContentController else { return }
+        ucc.removeAllUserScripts()
+        installScripts(ucc)
     }
 
     /// Full-resolution snapshot used for the zoom-into-card transition. Never waits more than 0.35s
@@ -420,6 +439,12 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         guard isMain else { return (.allow, preferences) }
 
         if action.navigationType == .linkActivated, !webMode, store.settings.prefs.nativeTemplates, TemplateRoute.match(url) != nil { navigate(url); return (.cancel, preferences) }
+        if store.settings.prefs.stripTrackingParams, action.request.httpMethod == "GET", action.navigationType != .backForward, action.navigationType != .reload,
+           let cleaned = TrackingParams.clean(url) {
+            flash("已移除链接里的追踪参数")
+            webView.load(URLRequest(url: cleaned))
+            return (.cancel, preferences)
+        }
         let host = url.host ?? ""
         let local = host == "localhost" || host.hasSuffix(".local") || host.range(of: #"^[\d.]+$"#, options: .regularExpression) != nil
         if scheme == "http", store.settings.prefs.httpsOnly, !local, !allowInsecure.contains(host) {
@@ -452,6 +477,7 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         if let u = webView.url, u.scheme != "about" { url = u }
         if pendingNative, store.settings.prefs.nativeTemplates, let u = webView.url, let r = TemplateRoute.match(u), r.platform.isSocial { pendingNative = false; navigate(u) }
         if loadingArchive { showingCachedCopy = true }
+        fingerprintHits = 0
         translated = false; canTranslate = false; translateDismissed = dismissedHost != nil && dismissedHost == webView.url?.host; pageLang = nil
         let site = store.settings.site(webView.url?.host)
         let p = store.settings.prefs

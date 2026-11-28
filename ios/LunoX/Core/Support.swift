@@ -108,9 +108,23 @@ struct SiteSetting: Codable, Hashable {
     var desktop = false
     var javascript = true
     var forceProxy = false
+    var fingerprintLoose = false   // true = this site sees the browser exactly as it is
     var allowNags = false          // true = leave this site's "open in app" / login prompts alone
     var camera: Bool? = nil     // nil = ask
     var microphone: Bool? = nil
+
+    init(desktop: Bool = false) { self.desktop = desktop }
+    /// Settings saved by older builds lack newer keys: read what is there, default the rest (never lose a site's settings on update).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        desktop = try c.decodeIfPresent(Bool.self, forKey: .desktop) ?? false
+        javascript = try c.decodeIfPresent(Bool.self, forKey: .javascript) ?? true
+        forceProxy = try c.decodeIfPresent(Bool.self, forKey: .forceProxy) ?? false
+        fingerprintLoose = try c.decodeIfPresent(Bool.self, forKey: .fingerprintLoose) ?? false
+        allowNags = try c.decodeIfPresent(Bool.self, forKey: .allowNags) ?? false
+        camera = try c.decodeIfPresent(Bool.self, forKey: .camera)
+        microphone = try c.decodeIfPresent(Bool.self, forKey: .microphone)
+    }
 }
 
 struct SearchEngine: Identifiable, Hashable, Codable {

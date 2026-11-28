@@ -163,6 +163,22 @@ final class TemplateTests: XCTestCase {
         let p = try? JSONSerialization.jsonObject(with: #"[{"type":"stream","url":"/watch?v=DxgDeW-gIcU","title":"T","uploaderName":"U","duration":125,"views":1500}]"#.data(using: .utf8)!)
         XCTAssertEqual(SiteParse.pipedItems(p).first?.id, "DxgDeW-gIcU"); XCTAssertEqual(SiteParse.pipedItems(p).first?.duration, "2:05")
     }
+    func testTrackingParams() {
+        let u = URL(string: "https://example.com/a?id=5&utm_source=x&fbclid=abc&q=hi")!
+        XCTAssertEqual(TrackingParams.clean(u)?.absoluteString, "https://example.com/a?id=5&q=hi")
+        XCTAssertEqual(TrackingParams.clean(URL(string: "https://example.com/?utm_medium=a")!)?.absoluteString, "https://example.com/")
+        XCTAssertNil(TrackingParams.clean(URL(string: "https://example.com/a?id=5")!))
+        XCTAssertNil(TrackingParams.clean(URL(string: "https://example.com/a")!))
+    }
+    func testSiteSettingDecodesOldFiles() throws {
+        let old = #"{"desktop":true,"javascript":true,"forceProxy":false}"#.data(using: .utf8)!
+        let s = try JSONDecoder().decode(SiteSetting.self, from: old)
+        XCTAssertTrue(s.desktop); XCTAssertFalse(s.fingerprintLoose); XCTAssertFalse(s.allowNags)
+    }
+    func testFingerprintScriptHasNoPlaceholders() {
+        let src = FingerprintGuard.userScript(skip: ["example.com"]).source
+        XCTAssertFalse(src.contains("SECRET")); XCTAssertFalse(src.contains("[LIST]")); XCTAssertTrue(src.contains("example.com")); XCTAssertTrue(src.contains(FingerprintGuard.messageName))
+    }
     func testPrefsSurviveNewKeys() {
         struct Old: Codable { var a = 1 }
         struct New: Codable { var a = 1; var b = 9 }

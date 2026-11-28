@@ -33,6 +33,8 @@ struct Prefs: Codable, Equatable {
     var startBackground = ""          // "" = plain (default)
     var newsAutoplay = true
     var translateNews = true          // translate headlines into the reading language
+    var fingerprintProtection = true  // consistent, believable normalisation (see Fingerprint.swift)
+    var stripTrackingParams = true    // utm_*, fbclid, gclid … removed from links you open
     var nativeTemplates = true        // YouTube / Bilibili … open as native pages
     var compactBar = false            // keep the bottom bar small until tapped
     var useHy2 = true

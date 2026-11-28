@@ -5,7 +5,7 @@ import WebKit
 @MainActor
 final class ContentBlocker {
     private(set) var list: WKContentRuleList?
-    private static let id = "lunox.trackers.v1"
+    private static let id = "lunox.trackers.v2"
 
     private static let domains = [
         "doubleclick.net", "googlesyndication.com", "googleadservices.com", "google-analytics.com", "googletagservices.com",
@@ -14,6 +14,9 @@ final class ContentBlocker {
         "connect.facebook.net", "pixel.facebook.com", "analytics.twitter.com", "ads-twitter.com", "ads.linkedin.com",
         "bat.bing.com", "clarity.ms", "moatads.com", "pubmatic.com", "rubiconproject.com", "openx.net", "casalemedia.com",
         "adsafeprotected.com", "2mdn.net", "amazon-adsystem.com", "yieldmo.com", "bidswitch.net", "mathtag.com",
+        "fullstory.com", "logrocket.com", "mouseflow.com", "crazyegg.com", "heap.io", "heapanalytics.com", "adform.net", "smartadserver.com", "serving-sys.com",
+        "bluekai.com", "demdex.net", "krxd.net", "exelator.com", "agkn.com", "tapad.com", "lotame.com", "liadm.com", "id5-sync.com", "permutive.com",
+        "chartbeat.com", "parsely.com", "statcounter.com", "mc.yandex.ru", "tags.tiqcdn.com", "branch.io", "adjust.com", "appsflyer.com", "app-measurement.com",
         "hm.baidu.com", "cnzz.com", "umeng.com", "gdt.qq.com", "pos.baidu.com", "cpro.baidu.com", "ads.tiktok.com",
     ]
     private static let hideSelectors = [
