@@ -127,6 +127,17 @@ func Stop() {
 	}
 }
 
+// dial opens a tunnelled TCP connection. After the network changed or the phone slept, the first call on a dead QUIC
+// connection fails and only marks it dead; the retry then reconnects. Hide that first failure from the caller.
+func dial(c client.Client, addr string) (net.Conn, error) {
+	conn, err := c.TCP(addr)
+	if err != nil {
+		time.Sleep(200 * time.Millisecond)
+		conn, err = c.TCP(addr)
+	}
+	return conn, err
+}
+
 // Probe opens one tunnelled TCP connection to addr ("host:port") to prove the Hysteria2 link works. Returns millis.
 func Probe(addr string) (int, error) {
 	mu.Lock()
@@ -136,7 +147,7 @@ func Probe(addr string) (int, error) {
 		return 0, errors.New("hysteria2 not started")
 	}
 	t0 := time.Now()
-	conn, err := c.TCP(addr)
+	conn, err := dial(c, addr)
 	if err != nil {
 		setStatus("error: " + err.Error())
 		return 0, err
@@ -156,7 +167,9 @@ func serve(ln net.Listener, c client.Client, token string) {
 	}
 }
 
-func reply(w io.Writer, line string) { _, _ = fmt.Fprintf(w, "HTTP/1.1 %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", line) }
+func reply(w io.Writer, line string) {
+	_, _ = fmt.Fprintf(w, "HTTP/1.1 %s\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", line)
+}
 
 func handle(conn net.Conn, c client.Client, want string) {
 	defer conn.Close()
@@ -190,7 +203,7 @@ func handle(conn net.Conn, c client.Client, want string) {
 		return
 	}
 	_ = conn.SetReadDeadline(time.Time{})
-	remote, err := c.TCP(parts[1])
+	remote, err := dial(c, parts[1])
 	if err != nil {
 		setStatus("error: " + err.Error())
 		reply(conn, "502 Bad Gateway")
