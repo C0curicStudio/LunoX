@@ -70,11 +70,6 @@ struct BottomChrome: View {
                         Image(systemName: "key.fill").font(.system(size: 14, weight: .semibold)).foregroundStyle(theme.accent).frame(width: 34, height: 40).contentShape(Rectangle())
                     }.buttonStyle(PressableStyle(scale: 0.85)).transition(.scale.combined(with: .opacity))
                 }
-                if !collapsed, tab.templateAvailable != nil, !tab.isLoading {
-                    Button { Haptics.soft(); if let u = tab.url { tab.navigate(u) } } label: {
-                        Image(systemName: "rectangle.stack.badge.play").font(.system(size: 15, weight: .semibold)).foregroundStyle(theme.accent).frame(width: 34, height: 40).contentShape(Rectangle())
-                    }.buttonStyle(PressableStyle(scale: 0.85)).transition(.scale.combined(with: .opacity))
-                }
                 if !collapsed && tab.readable && !tab.isLoading {
                     Button { Haptics.tap(); onReader() } label: {
                         Image(systemName: "text.page").font(.system(size: 15, weight: .semibold)).foregroundStyle(theme.accent).frame(width: 34, height: 40).contentShape(Rectangle())

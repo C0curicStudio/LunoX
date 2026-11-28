@@ -37,7 +37,7 @@ final class SplashController: ObservableObject {
 
     private func pageReady(_ store: BrowserStore) -> Bool {
         guard let t = store.current else { return true }
-        if t.isBlank || t.template != nil { return true }
+        if t.isBlank { return true }
         return t.progress >= 0.8 || (t.webView?.url != nil && !t.isLoading)
     }
 

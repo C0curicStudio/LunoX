@@ -121,49 +121,6 @@ final class LanguageTests: XCTestCase {
 }
 
 final class TemplateTests: XCTestCase {
-    func testRoutes() {
-        func k(_ s: String) -> TemplateKind? { TemplateRoute.match(URL(string: s)!)?.kind }
-        XCTAssertEqual(k("https://www.youtube.com/watch?v=dQw4w9WgXcQ"), .watch(id: "dQw4w9WgXcQ"))
-        XCTAssertEqual(k("https://youtu.be/dQw4w9WgXcQ"), .watch(id: "dQw4w9WgXcQ"))
-        XCTAssertEqual(k("https://m.youtube.com/results?search_query=swift"), .feed(query: "swift"))
-        XCTAssertEqual(k("https://youtube.com"), .feed(query: nil))
-        XCTAssertEqual(k("https://www.bilibili.com/video/BV1nz4y1N7NZ/"), .watch(id: "BV1nz4y1N7NZ"))
-        XCTAssertEqual(k("https://search.bilibili.com/all?keyword=swift"), .feed(query: "swift"))
-        XCTAssertNil(k("https://www.youtube.com/@channel"))
-        XCTAssertNil(k("https://example.com/watch?v=dQw4w9WgXcQ"))
-    }
-    func testSocialRoutes() {
-        func r(_ s: String) -> TemplateRoute? { TemplateRoute.match(URL(string: s)!) }
-        XCTAssertEqual(r("https://x.com/NASA/status/1234567890")?.kind, .watch(id: "1234567890"))
-        XCTAssertEqual(r("https://x.com/home")?.kind, .feed(query: nil))
-        XCTAssertEqual(r("https://twitter.com/NASA")?.kind, .feed(query: "@NASA"))
-        XCTAssertEqual(r("https://x.com/search?q=swift")?.kind, .feed(query: "swift"))
-        XCTAssertNil(r("https://x.com/settings"))
-        XCTAssertEqual(r("https://www.instagram.com/")?.platform, .instagram)
-        XCTAssertEqual(r("https://www.instagram.com/nasa/")?.kind, .feed(query: "@nasa"))
-        XCTAssertEqual(r("https://www.instagram.com/p/ABC123/")?.kind, .feed(query: "帖子"))
-        XCTAssertNil(r("https://www.instagram.com/accounts/login/"))
-    }
-    func testSocialParse() {
-        let js = #"{"p":[{"id":"1","name":"A","handle":"@a","avatar":"https://x/a.jpg","text":"hi","images":["https://x/1.jpg","bad"],"poster":"","video":"","time":"2026-01-01T00:00:00.000Z","replies":"1","reposts":"2","likes":"3","url":"https://x.com/a/status/1"}],"login":false}"#.data(using: .utf8)!
-        let r = SocialLoader.parse(js)
-        XCTAssertEqual(r?.posts.count, 1); XCTAssertEqual(r?.posts.first?.images, ["https://x/1.jpg"]); XCTAssertEqual(r?.login, false)
-        let t = #"{"id_str":"9","text":"hello","user":{"name":"N","screen_name":"n","profile_image_url_https":"https://p/n.jpg"},"favorite_count":12000,"mediaDetails":[{"type":"video","media_url_https":"https://p/poster.jpg","video_info":{"variants":[{"content_type":"video/mp4","bitrate":256000,"url":"https://v/lo.mp4"},{"content_type":"video/mp4","bitrate":832000,"url":"https://v/hi.mp4"}]}}]}"#.data(using: .utf8)!
-        let p = SiteParse.syndicationTweet(t)
-        XCTAssertEqual(p?.video, "https://v/hi.mp4"); XCTAssertEqual(p?.handle, "@n"); XCTAssertEqual(p?.likes, "1.2万")
-    }
-    func testYouTubeParse() {
-        let html = #"<script>var ytInitialData = {"contents":[{"videoRenderer":{"videoId":"abcdefghijk","title":{"runs":[{"text":"Hello"}]},"lengthText":{"simpleText":"1:02"},"viewCountText":{"simpleText":"5 views"},"ownerText":{"runs":[{"text":"Me"}]}}}]};</script>"#
-        let items = SiteParse.youtubeVideos(SiteParse.ytInitialData(html))
-        XCTAssertEqual(items.count, 1); XCTAssertEqual(items[0].title, "Hello"); XCTAssertEqual(items[0].duration, "1:02"); XCTAssertEqual(items[0].author, "Me")
-    }
-    func testBilibiliAndPipedParse() {
-        let b = #"{"code":0,"data":{"result":[{"bvid":"BV1","title":"<em class=\"keyword\">swift</em> 入门","pic":"//i0.hdslb.com/a.jpg","author":"A","duration":"3:20","play":12345,"danmaku":7}]}}"#.data(using: .utf8)!
-        let bi = SiteParse.bilibiliList(b)
-        XCTAssertEqual(bi.first?.title, "swift 入门"); XCTAssertEqual(bi.first?.thumb, "https://i0.hdslb.com/a.jpg"); XCTAssertTrue(bi.first?.meta.contains("1.2万") == true)
-        let p = try? JSONSerialization.jsonObject(with: #"[{"type":"stream","url":"/watch?v=DxgDeW-gIcU","title":"T","uploaderName":"U","duration":125,"views":1500}]"#.data(using: .utf8)!)
-        XCTAssertEqual(SiteParse.pipedItems(p).first?.id, "DxgDeW-gIcU"); XCTAssertEqual(SiteParse.pipedItems(p).first?.duration, "2:05")
-    }
     func testQuestionIntent() {
         XCTAssertTrue(QuestionIntent.isQuestion("怎么给 SwiftUI 的 List 加下拉刷新"))
         XCTAssertTrue(QuestionIntent.isQuestion("为什么天空是蓝色的"))

@@ -36,7 +36,7 @@ final class AssistantModel: ObservableObject {
                 let navigate = QuestionIntent.wantsNavigation(text)
                 // With a page open the assistant reads it (live, at the moment of asking) unless the question is plainly about the wider web.
                 let webWords = ["搜索", "联网", "最新", "新闻", "官网", "今天", "天气", "价格", "search", "latest", "news"].contains { text.lowercased().contains($0) }
-                let hasPage = !tab.isBlank && tab.template == nil
+                let hasPage = !tab.isBlank
                 let onPage = hasPage && !navigate && (QuestionIntent.refersToPage(text) || (usePage && !webWords))
                 var task: String, args: [String: Any]
                 if onPage {
@@ -100,7 +100,7 @@ struct AIAssistantView: View {
     @State private var pageChars = 0
     @FocusState private var focus: Bool
 
-    private var hasPage: Bool { !tab.isBlank && tab.template == nil }
+    private var hasPage: Bool { !tab.isBlank }
 
     var body: some View {
         VStack(spacing: 0) {

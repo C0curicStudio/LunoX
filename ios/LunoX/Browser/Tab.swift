@@ -51,13 +51,8 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
     @Published var translateDismissed = false
     private var dismissedHost: String?
     func dismissTranslateBanner() { translateDismissed = true; dismissedHost = (webView?.url ?? url)?.host }
-    @Published var template: TemplateRoute?     // set = a native page replaces the web view
     private var retriedDirect = Set<String>()
     @Published var fingerprintHits = 0
-    var lastTemplate: TemplateRoute?            // the native page the user left for "原网页"
-    var pendingNative = false                   // user went to sign in: switch to the native page once they are in
-    var webMode = false                         // user chose "原网页": links stay on the web
-    private var templateBack: [URL] = []
 
     private(set) var webView: WKWebView?
     var restoreState: Data?
@@ -206,18 +201,6 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
     /// Starts loading immediately. Reachability is checked in the background and only changes the route
     /// (and reloads once) if the site turns out to be blocked or much faster through the server.
     func navigate(_ url: URL, forceWeb: Bool = false, pushing: Bool = true) {
-        if !forceWeb, store.settings.prefs.nativeTemplates, let r = TemplateRoute.match(url) {
-            if pushing, let cur = self.url, cur != url { templateBack.append(cur) }
-            webMode = false; template = r; self.url = url
-            isLoading = false; progress = 0; stuck = false; note = nil; readable = false; canTranslate = false; translated = false; fixedBottom = 0
-            secure = true; title = r.platform.name; favicon = url.host.flatMap { store.icon(for: $0) }
-            canGoBack = !templateBack.isEmpty || webView?.url != nil; canGoForward = false
-            store.setBars(collapsed: false)
-            if !isPrivate { store.recordVisit(url: url, title: r.platform.name) }
-            return
-        }
-        if forceWeb, let r = template { lastTemplate = r }
-        template = nil; if !forceWeb { templateBack = []; lastTemplate = nil }; webMode = forceWeb
         self.url = url
         let wv = ensureWebView()
         showingCachedCopy = false
@@ -242,25 +225,8 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         wv.load(URLRequest(url: url))
     }
 
-    func goBack() {
-        if template != nil {
-            if let u = templateBack.popLast() { navigate(u, pushing: false); canGoBack = !templateBack.isEmpty || webView?.url != nil }
-            else if let wv = webView, wv.url != nil { template = nil; url = wv.url; canGoBack = wv.canGoBack; canGoForward = wv.canGoForward }
-            return
-        }
-        if webMode, !(webView?.canGoBack ?? false), let r = lastTemplate { lastTemplate = nil; navigate(r.url, pushing: false); return }
-        webView?.goBack()
-    }
-    /// The page being shown on the web could be shown natively: the bottom bar offers the way back to the template.
-    var templateAvailable: TemplateRoute? {
-        guard template == nil, store.settings.prefs.nativeTemplates, let u = url else { return nil }
-        return TemplateRoute.match(u)
-    }
+    func goBack() { webView?.goBack() }
     func goForward() { webView?.goForward() }
-    func templateReady(thumb: String?) {
-        guard let thumb else { return }
-        Task { [weak self] in if let img = await ImageStore.shared.load(thumb) { self?.thumbnail = img; self?.hero = img } }
-    }
     func reload() { if webView?.url == nil, let u = url { navigate(u) } else { webView?.reloadFromOrigin() } }
     func stop() { webView?.stopLoading() }
     @objc private func pulled() { reload() }
@@ -465,7 +431,6 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
         let isMain = action.targetFrame?.isMainFrame ?? true
         guard isMain else { return (.allow, preferences) }
 
-        if action.navigationType == .linkActivated, !webMode, store.settings.prefs.nativeTemplates, TemplateRoute.match(url) != nil { navigate(url); return (.cancel, preferences) }
         if store.settings.prefs.stripTrackingParams, action.request.httpMethod == "GET", action.navigationType != .backForward, action.navigationType != .reload,
            let cleaned = TrackingParams.clean(url) {
             flash("已移除链接里的追踪参数")
@@ -504,7 +469,6 @@ final class Tab: NSObject, ObservableObject, Identifiable, WKNavigationDelegate,
     }
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         if let u = webView.url, u.scheme != "about" { url = u }
-        if pendingNative, store.settings.prefs.nativeTemplates, let u = webView.url, let r = TemplateRoute.match(u), r.platform.isSocial { pendingNative = false; navigate(u) }
         if loadingArchive { showingCachedCopy = true }
         fingerprintHits = 0
         translated = false; canTranslate = false; translateDismissed = dismissedHost != nil && dismissedHost == webView.url?.host; pageLang = nil

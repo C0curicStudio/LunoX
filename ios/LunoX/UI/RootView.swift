@@ -126,10 +126,7 @@ struct TabContent: View {
     @ObservedObject var tab: Tab
     @EnvironmentObject var store: BrowserStore
     var body: some View {
-        if let r = tab.template {
-            if r.platform.isSocial { SocialTemplateView(tab: tab, route: r).id(r.url) } else { TemplateView(tab: tab, route: r).id(r.url) }
-        }
-        else if tab.isBlank { NewTabView() } else { WebContainer(tab: tab) }
+        if tab.isBlank { NewTabView() } else { WebContainer(tab: tab) }
     }
 }
 

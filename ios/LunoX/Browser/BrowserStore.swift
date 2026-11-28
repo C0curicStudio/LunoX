@@ -22,7 +22,6 @@ final class BrowserStore: ObservableObject {
     let fingerprintHandler = FingerprintHandler()
     let news: NewsStore
     @Published var newsRequest = 0
-    private(set) lazy var templates = TemplateService(engine: NewsEngine(gateway: gateway, router: router, settings: settings))
     @Published var startEditRequest = 0
     let offline = OfflineCache()
     let downloads = DownloadManager()
@@ -137,7 +136,7 @@ final class BrowserStore: ObservableObject {
         selectedID = t.id
         recency.removeAll { $0 == t.id }; recency.append(t.id)
         barsCollapsed = false
-        if t.template == nil { t.ensureWebView() }
+        t.ensureWebView()
         // Keep the 6 most recent web views alive, park the rest (like Chrome's tab discarding).
         let keep = Set(recency.suffix(6))
         for o in tabs where !keep.contains(o.id) { o.suspend() }
@@ -325,7 +324,6 @@ final class BrowserStore: ObservableObject {
             for st in s.tabs {
                 let t = Tab(store: self, id: st.id, isPrivate: false, url: st.url, title: st.title)
                 t.restoreState = st.state; t.group = st.group
-                if settings.prefs.nativeTemplates, let u = st.url, let r = TemplateRoute.match(u) { t.template = r; t.restoreState = nil }
                 tabs.append(t)
             }
             if let sel = tabs.first(where: { $0.id == s.selected }) ?? tabs.last { selectTab(sel) }
@@ -334,7 +332,6 @@ final class BrowserStore: ObservableObject {
         }
         if let hp = URL(string: settings.prefs.homepage), !settings.prefs.homepage.isEmpty, current?.isBlank == true { current?.navigate(hp) }
         if settings.prefs.syncBookmarks { Task { await sync() } }
-        if settings.prefs.nativeTemplates { templates.warmUp() }
         ready = true
         news.warmUp()
     }
